@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "multi-agent-brainstorming": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/multi-agent-brainstorming/SKILL.md",
+      "computedHash": "22675ff160ca8f48e2b09fa780ccc8761ed21ad8e91dda96f61e16904fc2cb79"
+    },
+    "multi-agent-orchestration": {
+      "source": "qodex-ai/ai-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/multi-agent-orchestration/SKILL.md",
+      "computedHash": "d50072e06e7180468a91e8985827f64ad05f090a6dd435f5c51813b4e9417b69"
+    }
+  }
+}
