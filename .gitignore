@@ -1,0 +1,16 @@
+.agents/
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+.DS_Store
+skills-lock.json
