@@ -11,7 +11,12 @@ dependencies = [
     "pydantic>=2.6",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "sqlmodel>=0.0.22",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
     "anthropic>=0.40",
+    "pvlib>=0.11",
+    "ecos>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +31,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["dynamiq*", "agents*", "thermal_agent*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
