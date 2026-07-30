@@ -74,7 +74,9 @@ def _extract_bbox(room: Mapping[str, Any]) -> tuple[float, float, float, float]:
     return x, y, width, height
 
 
-def auto_number_and_map_rooms(detected_rooms: list, floor_level: int, oriented_walls: dict) -> list:
+def auto_number_and_map_rooms(
+    detected_rooms: list, building_id: str, floor_level: int, oriented_walls: dict
+) -> list:
     """Sort detected rooms, assign sequential IDs, and annotate wall mappings."""
 
     normalized_rooms: list[dict[str, Any]] = []
@@ -92,7 +94,12 @@ def auto_number_and_map_rooms(detected_rooms: list, floor_level: int, oriented_w
     cardinal_walls = {cardinal: wall for wall, cardinal in oriented_walls.items()}
     enriched_rooms: list[dict[str, Any]] = []
     for sequence_number, room in enumerate(normalized_rooms, start=1):
-        room_id = f"room-{floor_level}{sequence_number:02d}"
+        # Must be globally unique across the whole `rooms` table, not just
+        # this floor — without building_id, two buildings sharing a floor
+        # level collide on room_id and silently overwrite each other's rows
+        # (verified live: uploading for building "2" clobbered building "1"'s
+        # rooms since both produced "room-101" for floor 1, room 1).
+        room_id = f"{building_id}-floor-{floor_level}-room-{sequence_number:02d}"
         room_label = str(room.get("room_label", room_id))
         enriched_room = {
             key: value

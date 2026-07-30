@@ -1,7 +1,13 @@
-"""SQLModel tables and nested taxonomies for building memory."""
+"""SQLModel tables and nested taxonomies for building memory.
+
+Table/column names must match the hand-written Supabase DDL exactly —
+SQLModel does not infer plurals, so every table needs an explicit
+__tablename__.
+"""
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field as PydanticField
@@ -47,24 +53,54 @@ class RoomConfig(BaseModel):
 
 
 class Building(SQLModel, table=True):
-    id: str = Field(primary_key=True)
+    __tablename__ = "buildings"
+
+    building_id: str = Field(primary_key=True)
     name: str
-    address: str
+    address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    total_floors: int
+    country_code: str = "DZ"
+    created_at: datetime | None = None
 
 
 class Floor(SQLModel, table=True):
-    id: str = Field(primary_key=True)
-    building_id: str = Field(foreign_key="building.id", index=True)
-    floor_level: int
+    __tablename__ = "floors"
+
+    floor_id: str = Field(primary_key=True)
+    building_id: str = Field(foreign_key="buildings.building_id", index=True)
+    level: int
+    name: str | None = None
+    floor_plan_url: str | None = None
+    created_at: datetime | None = None
 
 
 class Room(SQLModel, table=True):
+    __tablename__ = "rooms"
+
     room_id: str = Field(primary_key=True)
-    floor_id: str = Field(foreign_key="floor.id", index=True)
+    floor_id: str = Field(foreign_key="floors.floor_id", index=True)
+    building_id: str = Field(foreign_key="buildings.building_id", index=True)
     room_label: str
+    room_type: str = "classroom"
     area_m2: float
+    volume_m3: float
     primary_orientation: str
+    r_wall: float = 1.8
+    c_zone: float = 145000.0
+    sensor_id: str | None = None
     config_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime | None = None
+
+
+class RoomAdjacency(SQLModel, table=True):
+    __tablename__ = "room_adjacencies"
+
+    room_id: str = Field(foreign_key="rooms.room_id", primary_key=True)
+    adjacent_room_id: str = Field(primary_key=True)
+    direction: str
+    wall_type: str = "internal"
 
 
 def default_room_config() -> dict[str, Any]:

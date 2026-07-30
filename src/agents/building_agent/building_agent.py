@@ -13,6 +13,10 @@ from .db_manager import get_room_by_id, save_floor, save_room
 from .geometry_processor import auto_number_and_map_rooms, compute_cardinal_orientations
 from .schema_models import Building, Floor, Room, RoomConfig, default_room_config
 
+# No scale/height data is extracted from the plan, so volume is estimated
+# from a standard residential/institutional ceiling height.
+DEFAULT_CEILING_HEIGHT_M = 3.0
+
 
 class BuildingAgent:
     """Process architectural inputs and persist them as institutional memory."""
@@ -52,19 +56,28 @@ class BuildingAgent:
 
             floor = save_floor(
                 session,
-                Floor(id=floor_id, building_id=building_id, floor_level=floor_level),
+                Floor(floor_id=floor_id, building_id=building_id, level=floor_level),
             )
 
-            normalized_rooms = auto_number_and_map_rooms(detected_rooms_list, floor_level, oriented_walls)
+            normalized_rooms = auto_number_and_map_rooms(
+                detected_rooms_list, building_id, floor_level, oriented_walls
+            )
             saved_rooms: list[Room] = []
             for room_data in normalized_rooms:
                 room_config = room_data.get("config_json") or default_room_config()
+                area_m2 = float(room_data["area_m2"])
+                thermal = room_config.get("thermal", {})
                 room = Room(
                     room_id=room_data["room_id"],
                     floor_id=floor_id,
+                    building_id=building_id,
                     room_label=room_data["room_label"],
-                    area_m2=float(room_data["area_m2"]),
+                    room_type=str(room_data.get("room_type", "classroom")),
+                    area_m2=area_m2,
+                    volume_m3=area_m2 * DEFAULT_CEILING_HEIGHT_M,
                     primary_orientation=str(room_data.get("primary_orientation", "unknown")),
+                    r_wall=float(thermal.get("wall_r_value", 1.8)),
+                    c_zone=float(thermal.get("estimated_C_zone", 145000.0)),
                     config_json=room_config,
                 )
                 saved_rooms.append(save_room(session, room))
