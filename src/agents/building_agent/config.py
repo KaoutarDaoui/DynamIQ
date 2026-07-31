@@ -22,10 +22,11 @@ engine = create_engine(DATABASE_URL, echo=True)
 def get_session() -> Iterator[Session]:
     """Yield an active SQLModel session bound to the shared engine."""
 
-    with Session(engine) as session:
+    # Without this, every commit inside a multi-row loop (e.g. saving each
+    # room) expires *all* previously loaded ORM objects in the session, not
+    # just the one just committed — so by the time the caller reads
+    # attributes off earlier objects (e.g. building the API response), it
+    # triggers a DetachedInstanceError once the session is closed. Verified
+    # live: DB writes succeeded, but response construction crashed.
+    with Session(engine, expire_on_commit=False) as session:
         yield session
-from sqlmodel import SQLModel
-from .config import engine
-
-# Cette ligne crée automatiquement les tables 'building', 'floor', et 'room' dans Supabase si elles n'existent pas encore !
-SQLModel.metadata.create_all(engine)
