@@ -65,6 +65,12 @@ Event-driven: runs only when Agent 2 raises a `thermal_anomaly`. Gathers evidenc
 
 Verified live end-to-end: a real anomaly raised by Agent 2's own detection logic, diagnosed through the real Groq API, correctly persisted and routed by the Supervisor. Full details and rationale in `src/agents/diagnostic_agent/README.md`.
 
+## Agent 4 — Supervisor / Orchestration (`src/agents/supervisor/`)
+
+The runtime that actually wires the other three together — polls for undiagnosed anomalies and invokes Agent 3, runs Agent 2's fast loop and (only when due) its calibration sweep, and dispatches a real alert (a local log file, or a webhook if one's configured) whenever the deterministic decision layer routes a diagnosis to `human_alert`. Unlike Agent 2/3, this one *is* meant to import the other agents' packages directly — it's the coordinator sitting above them, not a peer.
+
+Verified live: one `run_full_cycle()` call ran all three other agents against the real Supabase database in sequence — fast loop, a correctly-skipped calibration (not due yet), and a live Groq diagnosis of a real anomaly — and persisted correctly throughout. Full details in `src/agents/supervisor/README.md`.
+
 ## Notes on scope
 
 - **LLM provider**: the brief specifies Amazon Bedrock (Claude) for the
