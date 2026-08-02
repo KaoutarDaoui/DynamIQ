@@ -31,7 +31,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["dynamiq*", "agents*", "thermal_agent*"]
+include = ["dynamiq*", "agents*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

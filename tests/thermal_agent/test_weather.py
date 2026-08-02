@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import numpy as np
 import pytest
-from thermal_agent.weather import clear_cache, get_forecast, offline_forecast, solar_gain_w
+from agents.thermal_agent.weather import clear_cache, get_forecast, offline_forecast, solar_gain_w
 LAT, LON = (36.7538, 3.0588)
 
 class TestOfflineForecast:

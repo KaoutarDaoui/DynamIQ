@@ -5,8 +5,8 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
-from thermal_agent.db import AdjacencyRecord, BuildingRecord, FloorRecord, RoomRecord
-from thermal_agent.zone_model import ZoneModelSanityError, build_zone_model
+from agents.thermal_agent.db import AdjacencyRecord, BuildingRecord, FloorRecord, RoomRecord
+from agents.thermal_agent.zone_model import ZoneModelSanityError, build_zone_model
 PORT = 8765
 DIRECTIONS = ('north', 'south', 'east', 'west')
 

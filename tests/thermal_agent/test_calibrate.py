@@ -1,8 +1,8 @@
 from __future__ import annotations
 import pytest
-from thermal_agent import constants
-from thermal_agent.calibrate import evaluate_calibration
-from thermal_agent.rc import generate_synthetic_scenario
+from agents.thermal_agent import constants
+from agents.thermal_agent.calibrate import evaluate_calibration
+from agents.thermal_agent.rc import generate_synthetic_scenario
 R_TRUE = 0.07
 C_TRUE = 3000000.0
 BOUNDS = ((constants.R_LUMPED_MIN_K_PER_W, constants.R_LUMPED_MAX_K_PER_W), (constants.C_LUMPED_MIN_J_PER_K, constants.C_LUMPED_MAX_J_PER_K))

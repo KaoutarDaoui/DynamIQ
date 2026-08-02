@@ -1,8 +1,8 @@
 from __future__ import annotations
 import pytest
-from thermal_agent import constants
-from thermal_agent.db import AdjacencyRecord, BuildingRecord, FloorRecord, RoomRecord
-from thermal_agent.zone_model import ZoneModelSanityError, build_zone_model, external_directions, is_top_floor, mass_factor, r_value_to_ua, sanity_gate
+from agents.thermal_agent import constants
+from agents.thermal_agent.db import AdjacencyRecord, BuildingRecord, FloorRecord, RoomRecord
+from agents.thermal_agent.zone_model import ZoneModelSanityError, build_zone_model, external_directions, is_top_floor, mass_factor, r_value_to_ua, sanity_gate
 
 class TestRValueToUa:
 

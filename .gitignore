@@ -22,4 +22,5 @@ examples/
 docker-compose.override.yml
 .docker/
 dev/docker-compose.yml
-src/thermal_agent/README.md
+src/agents/thermal_agent/README.md
+src/agents/diagnostic_agent/README.md

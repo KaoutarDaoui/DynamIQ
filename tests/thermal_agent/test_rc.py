@@ -1,8 +1,8 @@
 from __future__ import annotations
 import numpy as np
 import pytest
-from thermal_agent import constants
-from thermal_agent.rc import discretization_factor, fit_rc, generate_synthetic_scenario, simulate, step
+from agents.thermal_agent import constants
+from agents.thermal_agent.rc import discretization_factor, fit_rc, generate_synthetic_scenario, simulate, step
 R_TRUE = 0.07
 C_TRUE = 3000000.0
 FITTING_HORIZON_STEPS = constants.CALIBRATION_FIT_HORIZON_STEPS
@@ -76,7 +76,7 @@ class TestRecoversKnownParameters:
         assert abs(fit.c_j_per_k - C_TRUE) / C_TRUE < 0.1, f'seed={seed}: C off by {abs(fit.c_j_per_k - C_TRUE) / C_TRUE:.1%}'
 
     def test_validation_rmse_is_one_step_ahead_and_near_noise_floor(self) -> None:
-        from thermal_agent.rc import one_step_ahead_rmse
+        from agents.thermal_agent.rc import one_step_ahead_rmse
         scenario = generate_synthetic_scenario(R_TRUE, C_TRUE, days=21, sensor_noise_std_c=0.3, seed=0)
         n = len(scenario.t_ext_c)
         split = int(n * 0.7)

@@ -2,9 +2,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
-from thermal_agent import constants
-from thermal_agent.anomaly import check_comfort_violation, check_sensor_validity
-from thermal_agent.db import SensorReadingsWindow
+from agents.thermal_agent import constants
+from agents.thermal_agent.anomaly import check_comfort_violation, check_sensor_validity
+from agents.thermal_agent.db import SensorReadingsWindow
 
 def _window(temps: list[float], now: datetime | None=None, spacing_minutes: int=15) -> SensorReadingsWindow:
     now = now or datetime.now(timezone.utc)
