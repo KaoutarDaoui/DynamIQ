@@ -24,3 +24,5 @@ docker-compose.override.yml
 dev/docker-compose.yml
 src/agents/thermal_agent/README.md
 src/agents/diagnostic_agent/README.md
+src/agents/supervisor/README.md
+logs/
