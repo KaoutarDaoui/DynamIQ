@@ -5,9 +5,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
 from dotenv import load_dotenv
 from sqlalchemy import text
-from thermal_agent.db import fetch_building, fetch_floor, fetch_room, fetch_room_adjacencies, get_engine
-from thermal_agent.rc import generate_synthetic_scenario
-from thermal_agent.zone_model import build_zone_model
+from agents.thermal_agent.db import fetch_building, fetch_floor, fetch_room, fetch_room_adjacencies, get_engine
+from agents.thermal_agent.rc import generate_synthetic_scenario
+from agents.thermal_agent.zone_model import build_zone_model
 load_dotenv(Path(__file__).resolve().parent / '.env.dev')
 
 def main() -> None:

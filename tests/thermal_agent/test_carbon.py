@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import numpy as np
 import pytest
-from thermal_agent.carbon import clear_cache, fetch_forecast, get_forecast, offline_forecast
+from agents.thermal_agent.carbon import clear_cache, fetch_forecast, get_forecast, offline_forecast
 
 class TestOfflineForecast:
 

@@ -53,13 +53,26 @@ cp .env.example .env          # fill in ANTHROPIC_API_KEY when working on the Di
 pytest
 ```
 
+## Agent 2 — Thermal Agent (`src/agents/thermal_agent/`)
+
+Deterministic numerical service, no LLM. For each instrumented room it: builds a lumped RC thermal model from geometry, fits R/C against sensor history, solves a 24h MPC for a cost/carbon-optimal setpoint schedule, and flags rooms whose real temperature disagrees with what the model predicted. Reads Agent 1's `buildings`/`floors`/`rooms`/`room_adjacencies` tables directly over SQL (never imports Agent 1's code) and owns its own tables: `rc_model_params`, `mpc_schedules`, `anomalies`, `sensor_readings`.
+
+Verified end-to-end against the real Supabase database — calibration, MPC solve, and anomaly detection all confirmed working on real rooms, not just synthetic tests. Current limitation: no real sensors are deployed yet, so `sensor_readings` is synthetic/demo data, and most real rooms are missing the wall-geometry data (from Agent 1's floor-plan extraction) needed for a physically meaningful model. Full details and rationale in `src/agents/thermal_agent/README.md`.
+
+## Agent 3 — Diagnostic Agent (`src/agents/diagnostic_agent/`)
+
+Event-driven: runs only when Agent 2 raises a `thermal_anomaly`. Gathers evidence via 7 read-only tools, produces a cause + a proposed action, then hands the decision to a fully deterministic Supervisor layer (`supervisor.py`) that decides autonomous / human-alert / log-only — the LLM's own opinion never decides whether an action is safe. Uses Groq (its own `DIAGNOSTIC_GROQ_API_KEY`, isolated from Agent 1's vision-extraction key) rather than the Bedrock/Claude the original brief specified. Owns `diagnoses`/`alerts`/`audit_log`; never imports Agent 1 or Agent 2's code, even to read their tables.
+
+Verified live end-to-end: a real anomaly raised by Agent 2's own detection logic, diagnosed through the real Groq API, correctly persisted and routed by the Supervisor. Full details and rationale in `src/agents/diagnostic_agent/README.md`.
+
 ## Notes on scope
 
 - **LLM provider**: the brief specifies Amazon Bedrock (Claude) for the
-  Supervisor and Diagnostic agents. Locally, `diagnostic_agent.py` is
-  designed to call the Anthropic API directly (`ANTHROPIC_API_KEY`) —
-  same model family, no AWS wiring. Swap in a Bedrock client at
-  deployment time without changing the agent's interface.
+  Supervisor and Diagnostic agents. The actual Diagnostic Agent build
+  (`src/agents/diagnostic_agent/`) uses Groq instead — see that package's
+  README for why. `src/dynamiq/agents/diagnostic_agent.py` (Anthropic,
+  `ANTHROPIC_API_KEY`) is the original Phase-0 stub and was superseded by
+  the real build, not deleted.
 - **Storage**: no database. The Supervisor keeps an in-memory
   `audit_log`; persistence (RDS in the brief) is a deployment concern
   and out of scope here.

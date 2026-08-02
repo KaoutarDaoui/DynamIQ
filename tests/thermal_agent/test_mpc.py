@@ -2,9 +2,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
-from thermal_agent import constants
-from thermal_agent.carbon import offline_forecast as carbon_offline_forecast
-from thermal_agent.mpc import MpcInputs, solve
+from agents.thermal_agent import constants
+from agents.thermal_agent.carbon import offline_forecast as carbon_offline_forecast
+from agents.thermal_agent.mpc import MpcInputs, solve
 R_A101 = 0.010829145947844227
 C_A101 = 3298545.5503180367
 
