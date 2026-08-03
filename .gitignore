@@ -1,5 +1,6 @@
 .agents/
 .claude/
+.claude/
 
 __pycache__/
 *.pyc
