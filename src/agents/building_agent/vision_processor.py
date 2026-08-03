@@ -47,7 +47,7 @@ If you cannot detect any rooms, return [].
 
 # ── file type detection ────────────────────────────────────────────────────
 
-def _detect_file_type(filename: str, file_bytes: bytes) -> str:
+def detect_file_type(filename: str, file_bytes: bytes) -> str:
     """
     Detect whether the file is a PDF or an image.
     Returns: "pdf" | "jpeg" | "png" | "webp" | "gif"
@@ -293,7 +293,7 @@ def extract_rooms_from_file(
         httpx.HTTPError: If the Groq API call fails.
     """
 
-    file_type = _detect_file_type(filename, file_bytes)
+    file_type = detect_file_type(filename, file_bytes)
 
     if file_type == "pdf":
         image_b64 = _pdf_to_base64_jpeg(file_bytes, pdf_page_index)

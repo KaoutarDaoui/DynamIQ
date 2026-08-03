@@ -87,6 +87,11 @@ class BuildingAgent:
                 "floor": floor,
                 "rooms": saved_rooms,
                 "oriented_walls": oriented_walls,
+                # bbox/sequence_number are geometry-only and never persisted
+                # to the rooms table — callers that need to render the plan
+                # (e.g. the annotated-plan endpoint) must use this, not
+                # "rooms".
+                "normalized_rooms": normalized_rooms,
             }
 
     def get_thermal_parameters(self, room_id: str) -> dict[str, float | str]:
