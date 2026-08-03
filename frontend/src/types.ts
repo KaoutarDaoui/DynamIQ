@@ -21,6 +21,7 @@ export interface Building {
   status: "healthy" | "monitoring" | "critical";
   sensorsOnline: number;
   sensorsTotal: number;
+  lastAiOptimization: string;
   todayEnergyKwh: number;
   todayCarbonKg: number;
   weather: {
@@ -28,6 +29,7 @@ export interface Building {
     condition: string;
     windKph: number;
     humidityPct: number;
+    solar: "Low" | "Medium" | "High";
   };
   agents: AgentStatus[];
 }

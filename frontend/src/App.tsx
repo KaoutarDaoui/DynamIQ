@@ -14,6 +14,8 @@ import Reports from "./pages/Reports";
 import AuditLogPage from "./pages/AuditLog";
 import Settings from "./pages/Settings";
 import Help from "./pages/Help";
+import Thermal from "./pages/Thermal";
+import Mpc from "./pages/Mpc";
 import ComingSoon from "./pages/ComingSoon";
 
 export default function App() {
@@ -39,8 +41,8 @@ export default function App() {
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="settings" element={<Settings />} />
             <Route path="maintenance" element={<ComingSoon />} />
-            <Route path="thermal" element={<ComingSoon />} />
-            <Route path="mpc" element={<ComingSoon />} />
+            <Route path="thermal" element={<Thermal />} />
+            <Route path="mpc" element={<Mpc />} />
             <Route path="diagnoses" element={<ComingSoon />} />
             <Route path="admin" element={<ComingSoon />} />
           </Route>

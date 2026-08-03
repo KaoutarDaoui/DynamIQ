@@ -1,12 +1,10 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Plus,
   Zap,
   Building2,
   Search,
-  Sun,
-  Thermometer,
   MoreVertical,
   LayoutDashboard,
   LayoutGrid,
@@ -15,24 +13,15 @@ import {
   Settings,
   Trash2,
   Users,
+  AlertTriangle,
+  Leaf,
+  Activity,
+  ChevronRight,
 } from "lucide-react";
 import clsx from "clsx";
-import { buildings } from "../data/mock";
+import { buildings, currentUser } from "../data/mock";
 import { Card, PrimaryButton, inputClass } from "../components/ui";
-import type { AgentStatusState, Building } from "../types";
-
-const agentStateStyles: Record<AgentStatusState, string> = {
-  completed: "text-teal-700 dark:text-teal-300",
-  monitoring: "text-primary-600 dark:text-primary-400",
-  idle: "text-ink-400",
-  warning: "text-red-700 dark:text-red-300",
-};
-const agentDot: Record<AgentStatusState, string> = {
-  completed: "bg-teal-500",
-  monitoring: "bg-primary-500",
-  idle: "bg-ink-300 dark:bg-ink-600",
-  warning: "bg-red-500",
-};
+import type { Building } from "../types";
 
 const buildingStatus = {
   healthy: { label: "Healthy", dot: "bg-teal-500", text: "text-teal-700 dark:text-teal-300" },
@@ -40,22 +29,14 @@ const buildingStatus = {
   critical: { label: "Critical", dot: "bg-red-500", text: "text-red-700 dark:text-red-300" },
 };
 
-type SortKey = "health" | "name" | "newest";
+type StatusFilter = "all" | Building["status"];
 
-function HealthBar({ score }: { score: number }) {
-  const color = score >= 85 ? "#1d9e75" : score >= 60 ? "#ef9f27" : "#e24b4a";
-  return (
-    <div>
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-ink-400">Building Health</p>
-        <p className="text-[14px] font-semibold">{score}%</p>
-      </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${score}%`, backgroundColor: color }} />
-      </div>
-    </div>
-  );
-}
+const statusFilters: { id: StatusFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "healthy", label: "Healthy" },
+  { id: "monitoring", label: "Monitoring" },
+  { id: "critical", label: "Critical" },
+];
 
 function QuickActions({ building }: { building: Building }) {
   const [open, setOpen] = useState(false);
@@ -73,6 +54,7 @@ function QuickActions({ building }: { building: Building }) {
         className="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-800 dark:hover:bg-ink-800 dark:hover:text-ink-200"
         onClick={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setOpen((v) => !v);
         }}
         aria-label="Quick actions"
@@ -108,79 +90,44 @@ function QuickActions({ building }: { building: Building }) {
 function BuildingCard({ building }: { building: Building }) {
   const st = buildingStatus[building.status];
   const base = `/b/${building.id}`;
-  const offline = building.sensorsTotal - building.sensorsOnline;
+  const navigate = useNavigate();
+  const healthColor = building.healthScore >= 85 ? "#1d9e75" : building.healthScore >= 60 ? "#ef9f27" : "#e24b4a";
 
   return (
-    <Card className="flex flex-col p-5 transition duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-300">
-      <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-[16px] font-medium">{building.name}</h3>
-            <span className={clsx("inline-flex shrink-0 items-center gap-1 text-[12px] font-medium", st.text)}>
-              <span className={clsx("h-1.5 w-1.5 rounded-full", st.dot)} /> {st.label}
-            </span>
-          </div>
-          <p className="text-[12px] text-ink-400">{building.address}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <span className="flex items-center gap-1 rounded-full bg-ink-50 px-2 py-0.5 text-[12px] text-ink-600 dark:bg-ink-800 dark:text-ink-300">
-            <Thermometer size={12} className="text-primary-500" />
-            <span className="font-medium">{building.weather.tempC}°C</span>
-          </span>
-          <QuickActions building={building} />
-        </div>
-      </div>
-
-      {/* AI pipeline — explained, not named */}
-      <div className="mt-4 rounded-xl bg-ink-50 p-3 dark:bg-ink-800">
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-400">
-          <Zap size={11} /> AI Pipeline
-        </p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-          {building.agents.map((a) => (
-            <div key={a.name} className="flex items-center justify-between gap-2 text-[12px]">
-              <span className="truncate text-ink-600">{a.label}</span>
-              <span className={clsx("flex shrink-0 items-center gap-1 font-medium", agentStateStyles[a.state])}>
-                <span className={clsx("h-1.5 w-1.5 rounded-full", agentDot[a.state])} />
-                {a.detail}
+    <Card
+      className="group cursor-pointer p-5 transition duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-300"
+    >
+      <div onClick={() => navigate(base)}>
+        <div className="flex items-start justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-[16px] font-medium">{building.name}</h3>
+              <span className={clsx("inline-flex shrink-0 items-center gap-1 text-[12px] font-medium", st.text)}>
+                <span className={clsx("h-1.5 w-1.5 rounded-full", st.dot)} /> {st.label}
               </span>
             </div>
-          ))}
+            <p className="mt-0.5 text-[12px] text-ink-400">{building.address}</p>
+          </div>
+          <QuickActions building={building} />
         </div>
-      </div>
 
-      <div className="mt-4">
-        <HealthBar score={building.healthScore} />
-      </div>
-
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-ink-100 pt-3 text-[12px] dark:border-ink-800">
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-ink-600">
-          <span>
-            Sensors <span className="font-medium text-teal-700 dark:text-teal-300">{building.sensorsOnline} online</span>
-            {offline > 0 && <span className="font-medium text-red-700 dark:text-red-300"> · {offline} offline</span>}
-          </span>
-          <span>
-            Energy saved <span className="font-medium text-ink-900 dark:text-ink-100">{building.energySavedPct}%</span>
-          </span>
-          <span>
-            Carbon saved <span className="font-medium text-ink-900 dark:text-ink-100">{building.co2AvoidedTonMonth.toFixed(1)} t</span>
-          </span>
+        <div className="mt-4 flex items-center gap-3">
+          <span className="text-2xl font-medium">{building.healthScore}%</span>
+          <span className="text-[11px] font-medium uppercase tracking-wide text-ink-400">Health</span>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
+            <div className="h-full rounded-full rounded transition-all duration-700" style={{ width: `${building.healthScore}%`, backgroundColor: healthColor }} />
+          </div>
         </div>
-        <span className={clsx("flex shrink-0 items-center gap-1 font-medium", building.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300")}>
-          {building.activeAnomalies} anomaly{building.activeAnomalies === 1 ? "" : "ies"}
-        </span>
-      </div>
 
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[12px] text-ink-400">
-          <Sun size={12} />
-          <span>
-            Outside temperature <span className="font-medium text-ink-800 dark:text-ink-100">{building.weather.tempC}°C</span>
+        <div className="mt-4 flex items-center justify-between border-t border-ink-100 pt-3 dark:border-ink-800">
+          <span className={clsx("flex items-center gap-1 text-[13px] font-medium", building.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300")}>
+            {building.activeAnomalies > 0 && <AlertTriangle size={14} />}
+            {building.activeAnomalies} active anomaly{building.activeAnomalies === 1 ? "" : "ies"}
+          </span>
+          <span className="flex items-center gap-1 text-[13px] font-medium text-primary-600 transition group-hover:gap-1.5 dark:text-primary-400">
+            View dashboard <ChevronRight size={15} />
           </span>
         </div>
-        <Link to={base} className="shrink-0 rounded-xl bg-primary-500 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-primary-600">
-          Open dashboard
-        </Link>
       </div>
     </Card>
   );
@@ -200,13 +147,15 @@ function SummaryCard({ icon, label, value, accent }: { icon: React.ReactNode; la
 
 export default function Portfolio() {
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("health");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const totals = useMemo(
     () => ({
       buildings: buildings.length,
       healthyRooms: buildings.reduce((s, b) => s + (b.roomsCount - b.activeAnomalies), 0),
       activeAnomalies: buildings.reduce((s, b) => s + b.activeAnomalies, 0),
+      sensorsOnline: buildings.reduce((s, b) => s + b.sensorsOnline, 0),
+      sensorsTotal: buildings.reduce((s, b) => s + b.sensorsTotal, 0),
       energySaved: buildings.reduce((s, b) => s + b.energySavedPct, 0) / Math.max(1, buildings.length),
       carbonSaved: buildings.reduce((s, b) => s + b.co2AvoidedTonMonth, 0),
     }),
@@ -215,20 +164,23 @@ export default function Portfolio() {
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
-    const list = buildings.filter((b) => b.name.toLowerCase().includes(q) || b.address.toLowerCase().includes(q));
-    return [...list].sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "newest") return b.id.localeCompare(a.id);
-      return b.healthScore - a.healthScore;
-    });
-  }, [query, sort]);
+    return buildings.filter(
+      (b) =>
+        (statusFilter === "all" || b.status === statusFilter) &&
+        (b.name.toLowerCase().includes(q) || b.address.toLowerCase().includes(q))
+    );
+  }, [query, statusFilter]);
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-[22px] font-medium">Building Portfolio</h1>
-          <p className="mt-1 text-[13px] text-ink-400">Manage every building monitored by DynamIQ.</p>
+          <p className="text-[13px] text-ink-400">Good morning, {currentUser.name.split(" ")[0]}</p>
+          <h1 className="text-[22px] font-medium">My Buildings</h1>
+          <p className="mt-1 text-[13px] text-ink-400">
+            You manage {totals.buildings} {totals.buildings === 1 ? "building" : "buildings"}, {totals.activeAnomalies} active{" "}
+            {totals.activeAnomalies === 1 ? "alert" : "alerts"}.
+          </p>
         </div>
         <Link to="/onboarding">
           <PrimaryButton>
@@ -237,24 +189,52 @@ export default function Portfolio() {
         </Link>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <SummaryCard icon={<Building2 size={16} />} label="Buildings" value={String(totals.buildings)} />
         <SummaryCard icon={<Users size={16} />} label="Healthy Rooms" value={String(totals.healthyRooms)} />
-        <SummaryCard icon={<Zap size={16} />} label="Active Anomalies" value={String(totals.activeAnomalies)} accent={totals.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"} />
-        <SummaryCard icon={<Zap size={16} />} label="Energy Saved" value={`${totals.energySaved.toFixed(0)}%`} accent="text-teal-700 dark:text-teal-300" />
-        <SummaryCard icon={<Sun size={16} />} label="Carbon Saved" value={`${totals.carbonSaved.toFixed(1)} t`} accent="text-teal-700 dark:text-teal-300" />
+        <SummaryCard
+          icon={<AlertTriangle size={16} />}
+          label="Active Anomalies"
+          value={String(totals.activeAnomalies)}
+          accent={totals.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"}
+        />
+        <SummaryCard
+          icon={<Zap size={16} />}
+          label="Energy Saved"
+          value={`${totals.energySaved.toFixed(0)}%`}
+          accent="text-amber-700 dark:text-amber-300"
+        />
+        <SummaryCard icon={<Leaf size={16} />} label="CO₂ Avoided" value={`${totals.carbonSaved.toFixed(1)} t`} accent="text-teal-700 dark:text-teal-300" />
+        <SummaryCard
+          icon={<Activity size={16} />}
+          label="Sensors Online"
+          value={`${totals.sensorsOnline}/${totals.sensorsTotal}`}
+          accent="text-primary-700 dark:text-primary-300"
+        />
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="relative">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {statusFilters.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setStatusFilter(f.id)}
+              className={clsx(
+                "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium transition",
+                statusFilter === f.id
+                  ? "border-primary-500 bg-primary-500 text-white"
+                  : "border-ink-200 bg-white text-ink-600 hover:border-primary-300 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-300"
+              )}
+            >
+              {f.id !== "all" && <span className={clsx("h-1.5 w-1.5 rounded-full", buildingStatus[f.id].dot)} />}
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="relative ml-auto">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
           <input className={clsx(inputClass, "w-64 pl-9")} placeholder="Search building..." value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <select className={clsx(inputClass, "w-44")} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-          <option value="health">Sort: Health</option>
-          <option value="name">Sort: Name A–Z</option>
-          <option value="newest">Sort: Newest</option>
-        </select>
       </div>
 
       {filtered.length > 0 ? (
@@ -267,7 +247,11 @@ export default function Portfolio() {
         <div className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-ink-200 bg-white/50 px-6 text-center dark:border-ink-700 dark:bg-ink-900/50">
           <Building2 size={32} className="text-ink-300 dark:text-ink-600" />
           <p className="mt-3 text-[15px] font-medium text-ink-900 dark:text-ink-100">No buildings found</p>
-          <p className="mt-1 max-w-sm text-[13px] text-ink-400">Your portfolio is empty. Upload your next building and let building analysis handle it automatically.</p>
+          <p className="mt-1 max-w-sm text-[13px] text-ink-400">
+            {query || statusFilter !== "all"
+              ? "No buildings match this search or filter."
+              : "You have no buildings yet. Add your first one and let building analysis handle it automatically."}
+          </p>
           <Link to="/onboarding" className="mt-5">
             <PrimaryButton>
               <Plus size={16} /> Add Building

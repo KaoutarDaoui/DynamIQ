@@ -61,19 +61,28 @@ export function StatCard({
   value,
   delta,
   positive = true,
+  icon,
+  accent = "bg-primary-50 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400",
 }: {
   label: string;
   value: string;
   delta?: string;
   positive?: boolean;
+  icon?: ReactNode;
+  accent?: string;
 }) {
   return (
     <Card className="p-5 border-primary-200 dark:border-primary-800">
-      <p className="text-[13px] text-ink-400">{label}</p>
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] text-ink-400">{label}</p>
+        {icon && (
+          <span className={clsx("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl", accent)}>{icon}</span>
+        )}
+      </div>
       <div className="mt-2 flex items-end justify-between">
         <span className="text-2xl font-medium text-ink-900 dark:text-white">{value}</span>
         {delta && (
-          <span className={clsx("text-[12px] font-medium", positive ? "text-teal-700" : "text-red-700")}>
+          <span className={clsx("text-[12px] font-medium", positive ? "text-teal-700 dark:text-teal-300" : "text-red-700 dark:text-red-300")}>
             {delta}
           </span>
         )}
@@ -120,7 +129,7 @@ export function SecondaryButton({
     <button
       onClick={onClick}
       className={clsx(
-        "inline-flex items-center justify-center gap-2 rounded-xl border border-ink-200 bg-white px-4 py-2.5 text-[14px] font-medium text-ink-800 transition hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 dark:hover:bg-ink-800",
+        "inline-flex items-center justify-center gap-2 rounded-xl border border-navy-200 bg-white px-4 py-2.5 text-[14px] font-medium text-navy-700 transition hover:border-navy-300 hover:bg-navy-50 dark:border-navy-700 dark:bg-ink-900 dark:text-navy-200 dark:hover:bg-navy-900/40",
         className
       )}
     >

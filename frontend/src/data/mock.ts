@@ -34,9 +34,10 @@ export const buildings: Building[] = [
     status: "monitoring",
     sensorsOnline: 42,
     sensorsTotal: 42,
+    lastAiOptimization: "12 minutes ago",
     todayEnergyKwh: 126,
     todayCarbonKg: 31,
-    weather: { tempC: 36, condition: "Sunny", windKph: 12, humidityPct: 41 },
+    weather: { tempC: 36, condition: "Sunny", windKph: 12, humidityPct: 41, solar: "High" },
     agents: [
       { name: "Agent 1", label: "Building analysis", state: "completed", detail: "Completed" },
       { name: "Agent 2", label: "Thermal prediction", state: "monitoring", detail: "Monitoring" },
@@ -57,9 +58,10 @@ export const buildings: Building[] = [
     status: "healthy",
     sensorsOnline: 66,
     sensorsTotal: 68,
+    lastAiOptimization: "1 hour ago",
     todayEnergyKwh: 208,
     todayCarbonKg: 49,
-    weather: { tempC: 37, condition: "Sunny", windKph: 9, humidityPct: 38 },
+    weather: { tempC: 37, condition: "Sunny", windKph: 9, humidityPct: 38, solar: "High" },
     agents: [
       { name: "Agent 1", label: "Building analysis", state: "completed", detail: "Completed" },
       { name: "Agent 2", label: "Thermal prediction", state: "monitoring", detail: "Monitoring" },
@@ -242,6 +244,50 @@ export const anomalies: Anomaly[] = [
     severity: "low",
     status: "resolved",
   },
+  {
+    id: "an-4",
+    roomId: "room-301",
+    floorId: "floor-3",
+    raisedAt: "2026-08-02T16:20:00Z",
+    predictedC: 23.4,
+    measuredC: 25.1,
+    deltaC: 1.7,
+    severity: "medium",
+    status: "open",
+  },
+  {
+    id: "an-5",
+    roomId: "room-102",
+    floorId: "floor-1",
+    raisedAt: "2026-08-01T08:40:00Z",
+    predictedC: 23.0,
+    measuredC: 24.9,
+    deltaC: 1.9,
+    severity: "medium",
+    status: "diagnosed",
+  },
+  {
+    id: "an-6",
+    roomId: "room-402",
+    floorId: "floor-4",
+    raisedAt: "2026-08-01T14:10:00Z",
+    predictedC: 23.8,
+    measuredC: 27.6,
+    deltaC: 3.8,
+    severity: "high",
+    status: "open",
+  },
+  {
+    id: "an-7",
+    roomId: "room-203",
+    floorId: "floor-2",
+    raisedAt: "2026-07-31T10:00:00Z",
+    predictedC: 22.6,
+    measuredC: 22.8,
+    deltaC: 0.2,
+    severity: "low",
+    status: "resolved",
+  },
 ];
 
 export const diagnoses: Diagnosis[] = [
@@ -310,6 +356,54 @@ export const energyLast24h: EnergyPoint[] = [
   { hour: "08", kwh: 28 }, { hour: "10", kwh: 34 }, { hour: "12", kwh: 41 }, { hour: "14", kwh: 46 },
   { hour: "16", kwh: 39 }, { hour: "18", kwh: 30 }, { hour: "20", kwh: 22 }, { hour: "22", kwh: 15 },
 ];
+
+export type ChartRange = "24h" | "7d" | "30d" | "custom";
+export type ChartMetric = "energy" | "carbon" | "temperature";
+export interface ChartSeriesPoint {
+  label: string;
+  value: number;
+}
+
+const monthEnergy: ChartSeriesPoint[] = Array.from({ length: 30 }, (_, i) => ({
+  label: String(i + 1),
+  value: Math.round(350 + 30 * Math.sin((i / 30) * Math.PI * 2) + 12 * Math.sin(i * 1.7)),
+}));
+const monthCarbon = monthEnergy.map((p) => ({ label: p.label, value: Math.round(p.value * 0.24) }));
+const monthTemp: ChartSeriesPoint[] = Array.from({ length: 30 }, (_, i) => ({
+  label: String(i + 1),
+  value: Math.round(28 + 8 * Math.sin((i / 30) * Math.PI * 2) + 2 * Math.sin(i * 0.9)),
+}));
+
+export const dashboardSeries: Record<Exclude<ChartRange, "custom">, Record<ChartMetric, ChartSeriesPoint[]>> = {
+  "24h": {
+    energy: energyLast24h.map((p) => ({ label: p.hour, value: p.kwh })),
+    carbon: energyLast24h.map((p) => ({ label: p.hour, value: Math.round(p.kwh * 0.24) })),
+    temperature: [
+      { label: "00", value: 24 }, { label: "02", value: 23 }, { label: "04", value: 22 },
+      { label: "06", value: 24 }, { label: "08", value: 28 }, { label: "10", value: 31 },
+      { label: "12", value: 34 }, { label: "14", value: 36 }, { label: "16", value: 35 },
+      { label: "18", value: 31 }, { label: "20", value: 28 }, { label: "22", value: 26 },
+    ],
+  },
+  "7d": {
+    energy: [
+      { label: "Mon", value: 382 }, { label: "Tue", value: 395 }, { label: "Wed", value: 371 },
+      { label: "Thu", value: 402 }, { label: "Fri", value: 388 }, { label: "Sat", value: 342 },
+      { label: "Sun", value: 318 },
+    ],
+    carbon: [92, 95, 89, 96, 93, 82, 76].map((v, i) => ({ label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i], value: v })),
+    temperature: [
+      { label: "Mon", value: 31 }, { label: "Tue", value: 33 }, { label: "Wed", value: 32 },
+      { label: "Thu", value: 35 }, { label: "Fri", value: 36 }, { label: "Sat", value: 33 },
+      { label: "Sun", value: 30 },
+    ],
+  },
+  "30d": {
+    energy: monthEnergy,
+    carbon: monthCarbon,
+    temperature: monthTemp,
+  },
+};
 
 export interface Notification {
   id: string;

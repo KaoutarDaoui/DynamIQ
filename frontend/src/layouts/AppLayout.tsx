@@ -21,6 +21,9 @@ import {
   HelpCircle,
   Activity,
   LogOut,
+  Play,
+  Pause,
+  Timer,
 } from "lucide-react";
 import clsx from "clsx";
 import { currentUser, notifications, globalAgents, buildings, floors, rooms } from "../data/mock";
@@ -284,7 +287,7 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
   const base = buildingId ? `/b/${buildingId}` : null;
 
   const globalItems = [
-    { to: "/", icon: <Building2 size={18} />, label: "Portfolio" },
+    { to: "/", icon: <Building2 size={18} />, label: "My Buildings" },
     { to: "/help", icon: <HelpCircle size={18} />, label: "Help" },
   ];
 
@@ -387,6 +390,8 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
 export default function AppLayout() {
   const { dark, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
+  const { buildingId } = useParams();
+  const [mpcRunning, setMpcRunning] = useState(true);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f4f1] dark:bg-[#161512]">
@@ -396,7 +401,7 @@ export default function AppLayout() {
           collapsed ? "w-[68px]" : "w-60"
         )}
       >
-        <div className={clsx("flex items-center gap-2 px-3 py-3.5", collapsed && "justify-center")}>
+        <div className={clsx("flex items-center gap-2 px-3 pt-3.5 pb-4", collapsed && "justify-center")}>
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white">
             <Zap size={18} />
           </span>
@@ -428,6 +433,38 @@ export default function AppLayout() {
             <NotificationBell />
           </div>
         </header>
+
+        {buildingId && (
+          <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-ink-100 bg-ink-50/60 px-4 py-2 text-[12px] dark:border-ink-800 dark:bg-ink-800/30">
+            <span className="flex items-center gap-1.5 font-medium text-ink-700 dark:text-ink-200">
+              <Zap size={13} className="text-primary-500" /> Optimization
+            </span>
+            <span
+              className={clsx(
+                "flex items-center gap-1.5",
+                mpcRunning ? "text-teal-700 dark:text-teal-300" : "text-ink-400"
+              )}
+            >
+              <span className={clsx("h-1.5 w-1.5 rounded-full", mpcRunning ? "bg-teal-500" : "bg-ink-300")} />
+              MPC {mpcRunning ? "active" : "paused"}
+            </span>
+            <span className="flex items-center gap-1.5 text-ink-500 dark:text-ink-300">
+              <Timer size={12} /> Next calibration in 3 h · Last run 06:00
+            </span>
+            <button
+              onClick={() => setMpcRunning((v) => !v)}
+              className={clsx(
+                "ml-auto flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition",
+                mpcRunning
+                  ? "bg-white text-red-600 hover:bg-red-50 dark:bg-ink-900 dark:hover:bg-red-950"
+                  : "bg-white text-teal-600 hover:bg-teal-50 dark:bg-ink-900 dark:hover:bg-teal-950"
+              )}
+            >
+              {mpcRunning ? <Pause size={13} /> : <Play size={13} />}
+              {mpcRunning ? "Pause MPC" : "Start MPC"}
+            </button>
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto app-scroll p-6">
           <Outlet />
