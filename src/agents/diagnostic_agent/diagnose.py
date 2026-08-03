@@ -109,6 +109,19 @@ def _call_groq(messages: list[dict[str, Any]], api_key: str, timeout_s: float = 
     raise AssertionError("unreachable")
 
 
+_MAX_TOOL_RESULT_CHARS = 4000
+
+
+def _bounded_json(result: dict[str, Any]) -> str:
+    text = json.dumps(result)
+    if len(text) <= _MAX_TOOL_RESULT_CHARS:
+        return text
+    truncated = dict(result)
+    truncated["_truncated"] = f"Full result was {len(text)} chars; truncated to fit the conversation. Call this tool again with a narrower window (fewer hours/days) if you need more of this series."
+    truncated["data"] = json.dumps(result.get("data"))[: _MAX_TOOL_RESULT_CHARS // 2] + "...(truncated)"
+    return json.dumps(truncated)
+
+
 def _run_tool(engine: Engine, name: str, args: dict[str, Any], room_id: str) -> dict[str, Any]:
     fn = tools.TOOL_REGISTRY.get(name)
     if fn is None:
@@ -118,6 +131,21 @@ def _run_tool(engine: Engine, name: str, args: dict[str, Any], room_id: str) -> 
         return fn(engine, **args)
     except TypeError as exc:
         return {"ok": False, "error": f"bad arguments for {name}: {exc}"}
+
+
+_MAX_CONVERSATION_CHARS = 20000
+
+
+def _trim_conversation_if_needed(messages: list[dict[str, Any]]) -> None:
+    total = sum(len(json.dumps(m)) for m in messages)
+    if total <= _MAX_CONVERSATION_CHARS:
+        return
+    tool_message_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    for i in tool_message_indices[:-3]:
+        messages[i] = {
+            **messages[i],
+            "content": json.dumps({"_note": "Earlier result from this call, already used to inform the answer -- call the tool again if you need the detail back."}),
+        }
 
 
 def _extract_json(text: str) -> Any:
@@ -169,6 +197,7 @@ def diagnose_anomaly(engine: Engine, anomaly_id: int, api_key: str | None = None
             if len(tool_calls_made) >= constants.TOOL_CALL_BUDGET - 1 and not set(constants.MINIMUM_EVIDENCE_TOOLS) <= called_tool_names:
                 forced_note = f"You must call {constants.MINIMUM_EVIDENCE_TOOLS} before answering."
 
+            _trim_conversation_if_needed(messages)
             response = _call_groq(messages, api_key)
             choice = response["choices"][0]
             message = choice["message"]
@@ -205,7 +234,7 @@ def diagnose_anomaly(engine: Engine, anomaly_id: int, api_key: str | None = None
                 result = _run_tool(engine, name, args, room_id)
                 called_tool_names.add(name)
                 tool_calls_made.append({"tool": name, "args": args, "ok": result.get("ok")})
-                messages.append({"role": "tool", "tool_call_id": call["id"], "content": json.dumps(result)})
+                messages.append({"role": "tool", "tool_call_id": call["id"], "content": _bounded_json(result)})
 
             if forced_note:
                 messages.append({"role": "user", "content": forced_note})
