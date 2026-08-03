@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Annotated
 
@@ -11,9 +12,13 @@ from sqlmodel import Session
 
 from .building_agent import BuildingAgent
 from .config import get_session
-from .db_manager import save_building
+from .db_manager import save_building, save_floor
+from .plan_annotator import annotate_plan_with_room_numbers
 from .schema_models import Building
+from .storage_client import upload_annotated_plan
 from .vision_processor import extract_rooms_from_file
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(title="AeroTwin AI Building Agent")
@@ -27,6 +32,7 @@ class OnboardingResponse(BaseModel):
     rooms_saved: int
     room_ids: list[str] = Field(default_factory=list)
     oriented_walls: dict[str, str]
+    annotated_plan_url: str | None = None
 
 
 class BuildingCreateRequest(BaseModel):
@@ -154,10 +160,29 @@ async def upload_floor_plan(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    # Best-effort: rooms are already persisted at this point, so a rendering
+    # or upload failure here shouldn't turn a successful save into a 500.
+    annotated_plan_url: str | None = None
+    try:
+        annotated_bytes = annotate_plan_with_room_numbers(
+            file_bytes, plan_file.filename, result["normalized_rooms"]
+        )
+        annotated_plan_url = upload_annotated_plan(annotated_bytes, building_id, floor_level)
+        floor = result["floor"]
+        floor.floor_plan_url = annotated_plan_url
+        save_floor(session, floor)
+    except Exception:
+        logger.exception(
+            "Failed to render/upload annotated plan for building=%s floor=%s",
+            building_id,
+            floor_level,
+        )
+
     return OnboardingResponse(
         building_id=building_id,
         floor_level=floor_level,
         rooms_saved=len(result["rooms"]),
         room_ids=[room.room_id for room in result["rooms"]],
         oriented_walls=result["oriented_walls"],
+        annotated_plan_url=annotated_plan_url,
     )
