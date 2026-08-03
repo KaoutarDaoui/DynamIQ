@@ -4,24 +4,50 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import uuid
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlmodel import Session, func, select
 
 from .building_agent import BuildingAgent
 from .config import get_session
 from .db_manager import save_building, save_floor
 from .plan_annotator import annotate_plan_with_room_numbers
-from .schema_models import Building
+from .schema_models import Building, Floor, Room
 from .storage_client import upload_annotated_plan
 from .vision_processor import extract_rooms_from_file
 
 logger = logging.getLogger(__name__)
 
+# Multi-tenant org support isn't built yet — every building/query is scoped
+# to this single hardcoded org until the frontend has an org switcher.
+DEFAULT_ORG_ID = "ORG_AMAZON"
+
 
 app = FastAPI(title="AeroTwin AI Building Agent")
+
+app.add_middleware(
+    CORSMiddleware,
+    # Vite picks the next free port (5173, 5174, ...) when one's already
+    # taken, so pin the regex to localhost/127.0.0.1 rather than one port.
+    # Tighten this once there's a deployed frontend origin to pin instead.
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class RoomOut(BaseModel):
+    room_id: str
+    room_label: str
+    room_type: str
+    area_m2: float
+    volume_m3: float
+    primary_orientation: str
 
 
 class OnboardingResponse(BaseModel):
@@ -31,6 +57,7 @@ class OnboardingResponse(BaseModel):
     floor_level: int
     rooms_saved: int
     room_ids: list[str] = Field(default_factory=list)
+    rooms: list[RoomOut] = Field(default_factory=list)
     oriented_walls: dict[str, str]
     annotated_plan_url: str | None = None
 
@@ -38,7 +65,6 @@ class OnboardingResponse(BaseModel):
 class BuildingCreateRequest(BaseModel):
     """Payload to register a new building before uploading floor plans."""
 
-    building_id: str
     name: str
     address: str | None = None
     latitude: float | None = None
@@ -55,6 +81,21 @@ class BuildingResponse(BaseModel):
     longitude: float | None
     total_floors: int
     country_code: str
+    org_id: str | None
+
+
+class BuildingSummary(BaseModel):
+    """Building card data for the portfolio list — includes live counts."""
+
+    building_id: str
+    name: str
+    address: str | None
+    latitude: float | None
+    longitude: float | None
+    total_floors: int
+    country_code: str
+    floors_uploaded: int
+    rooms_count: int
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -70,6 +111,16 @@ ALLOWED_CONTENT_TYPES = {
 }
 
 
+def _slugify_building_id(session: Session, name: str) -> str:
+    """Derive a URL-safe, unique building_id from the building name."""
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "building"
+    candidate = slug
+    while session.get(Building, candidate) is not None:
+        candidate = f"{slug}-{uuid.uuid4().hex[:6]}"
+    return candidate
+
+
 @app.post(
     "/buildings",
     response_model=BuildingResponse,
@@ -80,10 +131,11 @@ async def create_building(
     payload: BuildingCreateRequest,
     session: SessionDep,
 ) -> BuildingResponse:
-    if session.get(Building, payload.building_id) is not None:
-        raise HTTPException(status_code=409, detail=f"Building already exists: {payload.building_id}")
-
-    building = save_building(session, Building(**payload.model_dump()))
+    building_id = _slugify_building_id(session, payload.name)
+    building = save_building(
+        session,
+        Building(building_id=building_id, org_id=DEFAULT_ORG_ID, **payload.model_dump()),
+    )
     return BuildingResponse(
         building_id=building.building_id,
         name=building.name,
@@ -92,7 +144,45 @@ async def create_building(
         longitude=building.longitude,
         total_floors=building.total_floors,
         country_code=building.country_code,
+        org_id=building.org_id,
     )
+
+
+@app.get(
+    "/organisations/{org_id}/buildings",
+    response_model=list[BuildingSummary],
+    summary="List buildings in an organisation, with live floor/room counts",
+)
+async def list_org_buildings(org_id: str, session: SessionDep) -> list[BuildingSummary]:
+    buildings = session.exec(select(Building).where(Building.org_id == org_id)).all()
+
+    summaries: list[BuildingSummary] = []
+    for building in buildings:
+        floors_uploaded = session.exec(
+            select(func.count()).select_from(Floor).where(Floor.building_id == building.building_id)
+        ).one()
+        floor_ids = session.exec(
+            select(Floor.floor_id).where(Floor.building_id == building.building_id)
+        ).all()
+        rooms_count = (
+            session.exec(select(func.count()).select_from(Room).where(Room.floor_id.in_(floor_ids))).one()
+            if floor_ids
+            else 0
+        )
+        summaries.append(
+            BuildingSummary(
+                building_id=building.building_id,
+                name=building.name,
+                address=building.address,
+                latitude=building.latitude,
+                longitude=building.longitude,
+                total_floors=building.total_floors,
+                country_code=building.country_code,
+                floors_uploaded=floors_uploaded,
+                rooms_count=rooms_count,
+            )
+        )
+    return summaries
 
 
 @app.post(
@@ -183,6 +273,17 @@ async def upload_floor_plan(
         floor_level=floor_level,
         rooms_saved=len(result["rooms"]),
         room_ids=[room.room_id for room in result["rooms"]],
+        rooms=[
+            RoomOut(
+                room_id=room.room_id,
+                room_label=room.room_label,
+                room_type=room.room_type,
+                area_m2=room.area_m2,
+                volume_m3=room.volume_m3,
+                primary_orientation=room.primary_orientation,
+            )
+            for room in result["rooms"]
+        ],
         oriented_walls=result["oriented_walls"],
         annotated_plan_url=annotated_plan_url,
     )

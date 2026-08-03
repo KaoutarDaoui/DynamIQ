@@ -70,7 +70,6 @@ class BuildingAgent:
                 room = Room(
                     room_id=room_data["room_id"],
                     floor_id=floor_id,
-                    building_id=building_id,
                     room_label=room_data["room_label"],
                     room_type=str(room_data.get("room_type", "classroom")),
                     area_m2=area_m2,

@@ -52,6 +52,17 @@ class RoomConfig(BaseModel):
     adjacency: Adjacency = PydanticField(default_factory=Adjacency)
 
 
+class Organisation(SQLModel, table=True):
+    __tablename__ = "organisations"
+
+    org_id: str = Field(primary_key=True)
+    name: str
+    email: str | None = None
+    country_code: str = "DZ"
+    plan: str = "free"
+    created_at: datetime | None = None
+
+
 class Building(SQLModel, table=True):
     __tablename__ = "buildings"
 
@@ -63,6 +74,7 @@ class Building(SQLModel, table=True):
     total_floors: int
     country_code: str = "DZ"
     created_at: datetime | None = None
+    org_id: str | None = Field(default=None, foreign_key="organisations.org_id")
 
 
 class Floor(SQLModel, table=True):
@@ -81,7 +93,6 @@ class Room(SQLModel, table=True):
 
     room_id: str = Field(primary_key=True)
     floor_id: str = Field(foreign_key="floors.floor_id", index=True)
-    building_id: str = Field(foreign_key="buildings.building_id", index=True)
     room_label: str
     room_type: str = "classroom"
     area_m2: float

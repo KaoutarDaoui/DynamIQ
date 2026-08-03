@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus,
@@ -15,10 +15,12 @@ import {
   Settings,
   Trash2,
   Users,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import clsx from "clsx";
-import { buildings } from "../data/mock";
 import { Card, PrimaryButton, inputClass } from "../components/ui";
+import { ApiError, fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
 import type { AgentStatusState, Building } from "../types";
 
 const agentStateStyles: Record<AgentStatusState, string> = {
@@ -201,6 +203,28 @@ function SummaryCard({ icon, label, value, accent }: { icon: React.ReactNode; la
 export default function Portfolio() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("health");
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchOrgBuildings()
+      .then((dtos) => {
+        if (!cancelled) setBuildings(dtos.map(toPortfolioBuilding));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Could not reach the backend.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const totals = useMemo(
     () => ({
@@ -210,7 +234,7 @@ export default function Portfolio() {
       energySaved: buildings.reduce((s, b) => s + b.energySavedPct, 0) / Math.max(1, buildings.length),
       carbonSaved: buildings.reduce((s, b) => s + b.co2AvoidedTonMonth, 0),
     }),
-    []
+    [buildings]
   );
 
   const filtered = useMemo(() => {
@@ -221,7 +245,7 @@ export default function Portfolio() {
       if (sort === "newest") return b.id.localeCompare(a.id);
       return b.healthScore - a.healthScore;
     });
-  }, [query, sort]);
+  }, [buildings, query, sort]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -257,7 +281,18 @@ export default function Portfolio() {
         </select>
       </div>
 
-      {filtered.length > 0 ? (
+      {loading ? (
+        <div className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-ink-200 bg-white/50 px-6 text-center dark:border-ink-700 dark:bg-ink-900/50">
+          <Loader2 size={28} className="animate-spin text-primary-500" />
+          <p className="mt-3 text-[13px] text-ink-400">Loading your portfolio…</p>
+        </div>
+      ) : error ? (
+        <div className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-red-200 bg-red-50/50 px-6 text-center dark:border-red-900 dark:bg-red-950/20">
+          <AlertTriangle size={28} className="text-red-500" />
+          <p className="mt-3 text-[15px] font-medium text-ink-900 dark:text-ink-100">Couldn't load buildings</p>
+          <p className="mt-1 max-w-sm text-[13px] text-ink-400">{error}</p>
+        </div>
+      ) : filtered.length > 0 ? (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           {filtered.map((b) => (
             <BuildingCard key={b.id} building={b} />
