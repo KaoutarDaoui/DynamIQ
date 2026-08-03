@@ -4,7 +4,6 @@ import {
   Plus,
   Zap,
   Building2,
-  Search,
   MoreVertical,
   LayoutDashboard,
   LayoutGrid,
@@ -20,7 +19,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { buildings, currentUser } from "../data/mock";
-import { Card, PrimaryButton, inputClass } from "../components/ui";
+import { Card, PrimaryButton } from "../components/ui";
 import type { Building } from "../types";
 
 const buildingStatus = {
@@ -135,18 +134,17 @@ function BuildingCard({ building }: { building: Building }) {
 
 function SummaryCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent?: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm dark:border-ink-800 dark:bg-ink-900">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">{icon}</span>
+    <div className="flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm dark:border-ink-800 dark:bg-ink-900">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">{icon}</span>
       <div className="min-w-0">
-        <p className="truncate text-[12px] text-ink-400">{label}</p>
-        <p className={clsx("truncate text-lg font-medium", accent ?? "text-ink-900 dark:text-ink-100")}>{value}</p>
+        <p className="truncate text-[13px] font-medium tracking-wide text-ink-400">{label}</p>
+        <p className={clsx("truncate text-3xl font-semibold", accent ?? "text-ink-900 dark:text-ink-100")}>{value}</p>
       </div>
     </div>
   );
 }
 
 export default function Portfolio() {
-  const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const totals = useMemo(
@@ -162,14 +160,10 @@ export default function Portfolio() {
     []
   );
 
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase();
-    return buildings.filter(
-      (b) =>
-        (statusFilter === "all" || b.status === statusFilter) &&
-        (b.name.toLowerCase().includes(q) || b.address.toLowerCase().includes(q))
-    );
-  }, [query, statusFilter]);
+  const filtered = useMemo(
+    () => buildings.filter((b) => statusFilter === "all" || b.status === statusFilter),
+    [statusFilter]
+  );
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -189,7 +183,7 @@ export default function Portfolio() {
         </Link>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <SummaryCard icon={<Building2 size={16} />} label="Buildings" value={String(totals.buildings)} />
         <SummaryCard icon={<Users size={16} />} label="Healthy Rooms" value={String(totals.healthyRooms)} />
         <SummaryCard
@@ -231,10 +225,6 @@ export default function Portfolio() {
             </button>
           ))}
         </div>
-        <div className="relative ml-auto">
-          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-          <input className={clsx(inputClass, "w-64 pl-9")} placeholder="Search building..." value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
       </div>
 
       {filtered.length > 0 ? (
@@ -248,8 +238,8 @@ export default function Portfolio() {
           <Building2 size={32} className="text-ink-300 dark:text-ink-600" />
           <p className="mt-3 text-[15px] font-medium text-ink-900 dark:text-ink-100">No buildings found</p>
           <p className="mt-1 max-w-sm text-[13px] text-ink-400">
-            {query || statusFilter !== "all"
-              ? "No buildings match this search or filter."
+            {statusFilter !== "all"
+              ? "No buildings match this filter."
               : "You have no buildings yet. Add your first one and let building analysis handle it automatically."}
           </p>
           <Link to="/onboarding" className="mt-5">
