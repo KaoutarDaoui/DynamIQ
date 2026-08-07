@@ -111,6 +111,9 @@ def _call_groq(messages: list[dict[str, Any]], api_key: str, timeout_s: float = 
     raise AssertionError("unreachable")
 
 
+_MAX_TOOL_RESULT_CHARS = 4000
+
+
 def _bounded_json(result: dict[str, Any]) -> str:
     text = json.dumps(result)
     if len(text) <= _MAX_TOOL_RESULT_CHARS:
@@ -142,6 +145,21 @@ def _run_tool(engine: Engine, name: str, args: dict[str, Any], room_id: str) -> 
         return fn(engine, **args)
     except TypeError as exc:
         return {"ok": False, "error": f"bad arguments for {name}: {exc}"}
+
+
+_MAX_CONVERSATION_CHARS = 20000
+
+
+def _trim_conversation_if_needed(messages: list[dict[str, Any]]) -> None:
+    total = sum(len(json.dumps(m)) for m in messages)
+    if total <= _MAX_CONVERSATION_CHARS:
+        return
+    tool_message_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    for i in tool_message_indices[:-3]:
+        messages[i] = {
+            **messages[i],
+            "content": json.dumps({"_note": "Earlier result from this call, already used to inform the answer -- call the tool again if you need the detail back."}),
+        }
 
 
 def _extract_json(text: str) -> Any:
