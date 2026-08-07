@@ -95,6 +95,9 @@ src/agents/
     weather.py                Open-Meteo (+pvlib) temp/GHI forecast; solar_gain_w()
     carbon.py                 ElectricityMaps grid carbon-intensity forecast
     constants.py              thermal/energy constants, tariffs, thresholds
+    api.py                    Read-only FastAPI app for the frontend's Thermal, MPC,
+                               Anomalies, Diagnoses, Alerts and Reports pages (own port, not
+                               the fast loop)
 
   diagnostic_agent/           Agent 3 — WHY (Groq LLM, event-driven)
     __init__.py
@@ -117,16 +120,19 @@ src/agents/
 Supporting files:
 
 ```
-dev/                      throwaway test data (seed scripts + local Postgres compose)
+dev/                            throwaway test data (seed scripts + local Postgres compose)
 examples/sample_building.json   one-zone sample (ESI Algiers, Room 204)
-scripts/run_simulation.py       end-to-end demo wiring (currently a stub)
+scripts/run_simulation.py       end-to-end demo run of all 4 agents against real Supabase,
+                                 traced to scripts/simulation_runs/*.json
+scripts/seed_djezzy_building.py one-time seed of the Djezzy HQ Annex demo building (18 rooms,
+                                 3 floors, 3 instrumented + really calibrated) into real Supabase
 tests/                          pytest suites, one package per agent
 pyproject.toml / requirements.txt / .env.example
 ```
 
 Every module in the four `src/agents/` packages is a real implementation with
 tests; the only unimplemented code left in the repo is the legacy
-`src/dynamiq/` package and `scripts/run_simulation.py`.
+`src/dynamiq/` package.
 
 ---
 

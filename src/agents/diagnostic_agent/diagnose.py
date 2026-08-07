@@ -15,6 +15,8 @@ from . import constants, contract, db, supervisor, tools
 
 _MAX_RATE_LIMIT_RETRIES = 3
 _RETRY_AFTER_PATTERN = re.compile(r"try again in ([\d.]+)s")
+_MAX_TOOL_RESULT_CHARS = 4000
+_MAX_CONVERSATION_CHARS = 20000
 
 SYSTEM_PROMPT = """You are the Diagnostic Agent for DynamIQ, a predictive HVAC control system. You are invoked only when the Thermal Agent has already detected a real, model-confirmed temperature anomaly. Your job: find the cause and propose one action. You never execute anything and your opinion never decides whether an action is safe -- a separate deterministic system does that after you answer.
 
@@ -120,6 +122,18 @@ def _bounded_json(result: dict[str, Any]) -> str:
     truncated["_truncated"] = f"Full result was {len(text)} chars; truncated to fit the conversation. Call this tool again with a narrower window (fewer hours/days) if you need more of this series."
     truncated["data"] = json.dumps(result.get("data"))[: _MAX_TOOL_RESULT_CHARS // 2] + "...(truncated)"
     return json.dumps(truncated)
+
+
+def _trim_conversation_if_needed(messages: list[dict[str, Any]]) -> None:
+    total = sum(len(json.dumps(m)) for m in messages)
+    if total <= _MAX_CONVERSATION_CHARS:
+        return
+    tool_message_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    for i in tool_message_indices[:-3]:
+        messages[i] = {
+            **messages[i],
+            "content": json.dumps({"_note": "Earlier result from this call, already used to inform the answer -- call the tool again if you need the detail back."}),
+        }
 
 
 def _run_tool(engine: Engine, name: str, args: dict[str, Any], room_id: str) -> dict[str, Any]:

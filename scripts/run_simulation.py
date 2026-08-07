@@ -29,8 +29,8 @@ from agents.thermal_agent.handler import run_fast_loop_for_room
 from agents.thermal_agent.rc import generate_synthetic_scenario
 from agents.thermal_agent.zone_model import build_zone_model
 
-BUILDING_ID = "1"
-ROOM_ID = "1-floor-2-room-16"
+BUILDING_ID = "djezzy-hq"
+ROOM_ID = "djezzy-hq-floor-2-room-01"
 SCENARIO = (
     "A window is left open in a warm classroom during occupied hours. "
     "The room runs progressively warmer than the thermal model predicts, "
@@ -107,6 +107,13 @@ def _refresh_sensor_history(engine, trace: Trace, room_id: str, days: int = 7) -
 
 
 def _inject_window_left_open(engine, trace: Trace, room_id: str) -> None:
+    active = fetch_active_rc_model_params(engine, room_id)
+    threshold_c = active.anomaly_threshold_c if active is not None else 1.0
+    # anomaly.py compares consecutive one-step-ahead RESIDUALS to this threshold, not
+    # the cumulative offset -- each step's jump beyond the previous (already-shifted)
+    # reading must itself clear the threshold, or the "4 consecutive" gate never fires.
+    step_increment_c = max(2.0, 2.5 * threshold_c)
+
     with engine.begin() as conn:
         rows = conn.execute(
             text("SELECT ts, temp_measured_c FROM sensor_readings WHERE room_id = :r ORDER BY ts DESC LIMIT 5"),
@@ -115,6 +122,10 @@ def _inject_window_left_open(engine, trace: Trace, room_id: str) -> None:
         before = [dict(ts=r[0].isoformat(), temp_measured_c=r[1]) for r in reversed(rows)]
 
         baseline_c = rows[0][1]
+        max_total_c = max(step_increment_c, min(step_increment_c * 5, 44.0 - baseline_c))
+        uncapped = [step_increment_c * (i + 1) for i in range(5)]
+        scale = min(1.0, max_total_c / uncapped[-1])
+        ramp = [round(o * scale, 2) for o in uncapped]
         max_addition = max(3.0, min(6.0, 44.0 - baseline_c))
         ramp = [round(max_addition * f, 2) for f in (0.2, 0.4, 0.6, 0.8, 1.0)]
         for (ts, _temp), offset in zip(reversed(rows), ramp):
@@ -217,14 +228,15 @@ def main() -> None:
         diag_rows = conn.execute(
             text(
                 "SELECT d.id, d.anomaly_id, d.room_id, d.cause, d.supervisor_decision "
-                "FROM diagnoses d JOIN rooms r ON r.room_id = d.room_id WHERE r.building_id = :b ORDER BY d.id"
+                "FROM diagnoses d JOIN rooms r ON r.room_id = d.room_id "
+                "JOIN floors f ON f.floor_id = r.floor_id WHERE f.building_id = :b ORDER BY d.id"
             ),
             {"b": BUILDING_ID},
         ).all()
         anomaly_rows = conn.execute(
             text(
                 "SELECT a.id, a.room_id, a.diagnosed FROM anomalies a JOIN rooms r ON r.room_id = a.room_id "
-                "WHERE r.building_id = :b ORDER BY a.id"
+                "JOIN floors f ON f.floor_id = r.floor_id WHERE f.building_id = :b ORDER BY a.id"
             ),
             {"b": BUILDING_ID},
         ).all()

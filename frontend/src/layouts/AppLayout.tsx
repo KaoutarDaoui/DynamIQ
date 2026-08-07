@@ -15,7 +15,6 @@ import {
   Cpu,
   AlertTriangle,
   BellRing,
-  Wrench,
   FileBarChart,
   Settings,
   HelpCircle,
@@ -312,7 +311,6 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
         {
           items: [
             { to: `${base}/alerts`, icon: <BellRing size={18} />, label: "Alerts" },
-            { to: `${base}/maintenance`, icon: <Wrench size={18} />, label: "Maintenance" },
             { to: `${base}/reports`, icon: <FileBarChart size={18} />, label: "Reports" },
           ],
         },
