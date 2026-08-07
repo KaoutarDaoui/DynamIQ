@@ -126,8 +126,6 @@ def _inject_window_left_open(engine, trace: Trace, room_id: str) -> None:
         uncapped = [step_increment_c * (i + 1) for i in range(5)]
         scale = min(1.0, max_total_c / uncapped[-1])
         ramp = [round(o * scale, 2) for o in uncapped]
-        max_addition = max(3.0, min(6.0, 44.0 - baseline_c))
-        ramp = [round(max_addition * f, 2) for f in (0.2, 0.4, 0.6, 0.8, 1.0)]
         for (ts, _temp), offset in zip(reversed(rows), ramp):
             conn.execute(
                 text("UPDATE sensor_readings SET temp_measured_c = temp_measured_c + :o WHERE room_id = :r AND ts = :ts"),
