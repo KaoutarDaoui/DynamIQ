@@ -159,3 +159,158 @@ export interface EnergyPoint {
   hour: string;
   kwh: number;
 }
+
+export interface ThermalModelRoom {
+  roomId: string;
+  roomLabel: string;
+  floorId: string;
+  floorLevel: number;
+  areaM2: number;
+  isInstrumented: boolean;
+  isCalibrated: boolean;
+  version: number | null;
+  rLumpedKPerW: number | null;
+  cLumpedJPerK: number | null;
+  rmseValidationC: number | null;
+  anomalyThresholdC: number | null;
+  dataWindowStart: string | null;
+  dataWindowEnd: string | null;
+  calibratedAt: string | null;
+}
+
+export interface MpcRoomSummary {
+  roomId: string;
+  roomLabel: string;
+  floorLevel: number;
+  latestSolvedAt: string;
+}
+
+export interface MpcScheduleSlot {
+  slotTs: string;
+  setpointC: number;
+  predictedTempC: number;
+  predictedKwh: number;
+  predictedGco2: number;
+  actualTempC: number | null;
+}
+
+export interface MpcSchedule {
+  roomId: string;
+  roomLabel: string;
+  solvedAt: string;
+  modelVersion: number;
+  capacityKw: number | null;
+  copCooling: number | null;
+  tariffCurrencyPerKwh: number;
+  carbonWeightLambda: number;
+  slots: MpcScheduleSlot[];
+}
+
+export type LiveAnomalyStatus = "open" | "diagnosed" | "resolved";
+export type LiveAnomalySeverity = "high" | "medium" | "low";
+
+export interface LiveAnomalyOverview {
+  anomalyId: number;
+  roomId: string;
+  roomLabel: string;
+  floorLevel: number;
+  anomalyType: string;
+  openedAt: string;
+  closedAt: string | null;
+  residualC: number | null;
+  thresholdC: number | null;
+  status: LiveAnomalyStatus;
+  severity: LiveAnomalySeverity;
+  diagnosed: boolean;
+  cause: string | null;
+  causeConfidence: string | null;
+  supervisorDecision: string | null;
+}
+
+export interface LiveDiagnosisSummary {
+  id: number;
+  cause: string;
+  causeConfidence: string;
+  evidence: string[];
+  energyWastedKwh: number;
+  energyWastedBasis: string;
+  proposedAction: Record<string, unknown>;
+  recurrence: { seen_before?: boolean; last_occurrence?: string | null; long_term_recommendation?: string | null } & Record<string, unknown>;
+  message: string;
+  supervisorDecision: string;
+  createdAt: string;
+}
+
+export interface LiveAnomalyDetail {
+  anomalyId: number;
+  roomId: string;
+  roomLabel: string;
+  floorLevel: number;
+  anomalyType: string;
+  openedAt: string;
+  closedAt: string | null;
+  residualC: number | null;
+  thresholdC: number | null;
+  residualTrace: { ts: string; residual_c: number }[];
+  status: LiveAnomalyStatus;
+  severity: LiveAnomalySeverity;
+  diagnosed: boolean;
+  diagnosis: LiveDiagnosisSummary | null;
+}
+
+export interface LiveDiagnosisOverview {
+  id: number;
+  anomalyId: number;
+  roomId: string;
+  roomLabel: string;
+  floorLevel: number;
+  cause: string;
+  causeConfidence: string;
+  energyWastedKwh: number;
+  energyWastedBasis: string;
+  proposedActionType: string;
+  supervisorDecision: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface LiveAlert {
+  id: number;
+  diagnosisId: number;
+  anomalyId: number;
+  roomId: string;
+  roomLabel: string;
+  floorLevel: number;
+  channel: string;
+  recipient: string;
+  cause: string;
+  causeConfidence: string;
+  message: string;
+  sentAt: string;
+}
+
+export interface DailyEnergyPoint {
+  date: string;
+  kwh: number;
+  gco2: number;
+}
+
+export interface ComfortLeaderboardEntry {
+  roomId: string;
+  roomLabel: string;
+  floorLevel: number;
+  latestTempC: number;
+  deviationC: number;
+  readingAt: string;
+}
+
+export interface ReportsSummary {
+  windowDays: number;
+  totalPredictedKwh: number;
+  totalPredictedGco2: number;
+  totalPredictedCostCurrency: number;
+  tariffCurrencyPerKwh: number;
+  avgComfortDeviationC: number | null;
+  daily: DailyEnergyPoint[];
+  comfortLeaderboard: ComfortLeaderboardEntry[];
+}

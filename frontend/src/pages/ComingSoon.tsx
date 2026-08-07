@@ -3,10 +3,6 @@ import { Construction } from "lucide-react";
 import { Card } from "../components/ui";
 
 const titles: Record<string, string> = {
-  maintenance: "Maintenance",
-  thermal: "Thermal models",
-  mpc: "MPC optimizer",
-  diagnoses: "Diagnoses",
   admin: "Administration",
 };
 
