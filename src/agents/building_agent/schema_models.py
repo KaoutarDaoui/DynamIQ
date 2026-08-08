@@ -7,7 +7,7 @@ __tablename__.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field as PydanticField
@@ -112,6 +112,24 @@ class RoomAdjacency(SQLModel, table=True):
     adjacent_room_id: str = Field(primary_key=True)
     direction: str
     wall_type: str = "internal"
+
+
+class AirConditioner(SQLModel, table=True):
+    __tablename__ = "air_conditioners"
+
+    ac_id: str = Field(primary_key=True)
+    room_id: str = Field(foreign_key="rooms.room_id", index=True)
+    manufacturer: str | None = None
+    model: str | None = None
+    serial_number: str | None = Field(default=None, unique=True)
+    cooling_capacity_kw: float | None = None
+    heating_capacity_kw: float | None = None
+    power_kw: float | None = None
+    installation_date: date | None = None
+    status: str = "active"
+    created_at: datetime | None = None
+    pos_x: float | None = None
+    pos_y: float | None = None
 
 
 def default_room_config() -> dict[str, Any]:

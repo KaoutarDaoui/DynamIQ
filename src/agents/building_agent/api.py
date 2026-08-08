@@ -15,7 +15,7 @@ from sqlmodel import Session, func, select
 
 from .building_agent import BuildingAgent
 from .config import get_session
-from .db_manager import save_building, save_floor
+from .db_manager import replace_room_air_conditioners, save_building, save_floor
 from .plan_annotator import annotate_plan_with_room_numbers
 from .schema_models import Building, Floor, Room
 from .storage_client import upload_annotated_plan
@@ -82,6 +82,19 @@ class BuildingResponse(BaseModel):
     total_floors: int
     country_code: str
     org_id: str | None
+
+
+class AcSetRequest(BaseModel):
+    """Payload to set a room's AC units — replaces any existing units for that room."""
+
+    count: int = Field(ge=0, le=20)
+    capacity_kw: float = Field(gt=0)
+
+
+class AcOut(BaseModel):
+    ac_id: str
+    cooling_capacity_kw: float | None
+    power_kw: float | None
 
 
 class BuildingSummary(BaseModel):
@@ -193,8 +206,8 @@ async def list_org_buildings(org_id: str, session: SessionDep) -> list[BuildingS
 async def upload_floor_plan(
     building_id: str,
     floor_level: int,
-    north_direction: Annotated[str, Form(
-        description="Where north points on the plan: top | bottom | left | right"
+    north_angle_deg: Annotated[float, Form(
+        description="Clockwise degrees from the image's top edge to true north (0-359), from the compass dial"
     )],
     plan_file: Annotated[UploadFile, File(
         description="Architectural plan — PDF, JPEG, PNG, WEBP, or GIF"
@@ -203,9 +216,6 @@ async def upload_floor_plan(
 ) -> OnboardingResponse:
     if not plan_file.filename:
         raise HTTPException(status_code=422, detail="Uploaded file must have a filename")
-
-    if north_direction.lower() not in {"top", "bottom", "left", "right"}:
-        raise HTTPException(status_code=422, detail="north_direction must be: top | bottom | left | right")
 
     content_type = (plan_file.content_type or "").lower()
     if content_type and content_type not in ALLOWED_CONTENT_TYPES:
@@ -245,7 +255,7 @@ async def upload_floor_plan(
             building_id=building_id,
             floor_level=floor_level,
             detected_rooms_list=detected_rooms,
-            north_click_direction=north_direction.lower(),
+            north_angle_deg=north_angle_deg,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -287,3 +297,24 @@ async def upload_floor_plan(
         oriented_walls=result["oriented_walls"],
         annotated_plan_url=annotated_plan_url,
     )
+
+
+@app.post(
+    "/rooms/{room_id}/air-conditioners",
+    response_model=list[AcOut],
+    status_code=201,
+    summary="Set a room's AC units (count + shared capacity), replacing any existing ones",
+)
+async def set_room_air_conditioners(
+    room_id: str,
+    payload: AcSetRequest,
+    session: SessionDep,
+) -> list[AcOut]:
+    if session.get(Room, room_id) is None:
+        raise HTTPException(status_code=404, detail=f"Room not found: {room_id}")
+
+    acs = replace_room_air_conditioners(session, room_id, payload.count, payload.capacity_kw)
+    return [
+        AcOut(ac_id=ac.ac_id, cooling_capacity_kw=ac.cooling_capacity_kw, power_kw=ac.power_kw)
+        for ac in acs
+    ]

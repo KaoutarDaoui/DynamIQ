@@ -42,11 +42,11 @@ class BuildingAgent:
         building_id: str,
         floor_level: int,
         detected_rooms_list: list,
-        north_click_direction: str,
+        north_angle_deg: float,
     ) -> dict[str, Any]:
         """Normalize room geometry, create ORM rows, and persist them."""
 
-        oriented_walls = compute_cardinal_orientations(north_click_direction)
+        oriented_walls = compute_cardinal_orientations(north_angle_deg)
         floor_id = f"{building_id}-floor-{floor_level}"
 
         with self._session_scope() as session:

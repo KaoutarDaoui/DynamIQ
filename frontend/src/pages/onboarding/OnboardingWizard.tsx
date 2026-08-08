@@ -6,22 +6,21 @@ import {
   Zap,
   Loader2,
   AlertTriangle,
-  ArrowUp,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
   FileText,
   DoorOpen,
+  Wind,
 } from "lucide-react";
 import clsx from "clsx";
 import { Card, Field, PrimaryButton, SecondaryButton, inputClass } from "../../components/ui";
 import {
   ApiError,
   createBuilding,
+  setRoomAirConditioners,
   uploadFloorPlan,
   type FloorUploadResponseDto,
-  type NorthDirection,
+  type NorthAngleDeg,
 } from "../../lib/api";
+import CompassDial from "./CompassDial";
 
 const steps = [
   { id: 1, label: "Building" },
@@ -34,7 +33,7 @@ interface FloorState {
   file: File | null;
   previewUrl: string | null;
   isPdf: boolean;
-  north: NorthDirection | null;
+  north: NorthAngleDeg | null;
   analyzing: boolean;
   error: string | null;
   result: FloorUploadResponseDto | null;
@@ -53,12 +52,15 @@ function makeFloor(level: number): FloorState {
   };
 }
 
-const NORTH_ARROWS: { dir: NorthDirection; icon: typeof ArrowUp; className: string }[] = [
-  { dir: "top", icon: ArrowUp, className: "left-1/2 top-1.5 -translate-x-1/2" },
-  { dir: "bottom", icon: ArrowDown, className: "bottom-1.5 left-1/2 -translate-x-1/2" },
-  { dir: "left", icon: ArrowLeft, className: "left-1.5 top-1/2 -translate-y-1/2" },
-  { dir: "right", icon: ArrowRight, className: "right-1.5 top-1/2 -translate-y-1/2" },
-];
+interface AcRowState {
+  count: number;
+  capacityKw: number;
+  saving: boolean;
+  saved: boolean;
+  error: string | null;
+}
+
+const DEFAULT_AC_ROW: AcRowState = { count: 0, capacityKw: 3.5, saving: false, saved: false, error: null };
 
 export default function OnboardingWizard() {
   const navigate = useNavigate();
@@ -76,6 +78,25 @@ export default function OnboardingWizard() {
   const [floors, setFloors] = useState<FloorState[]>([makeFloor(1), makeFloor(2)]);
   const [currentFloorIndex, setCurrentFloorIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [acRows, setAcRows] = useState<Record<string, AcRowState>>({});
+
+  function patchAcRow(roomId: string, patch: Partial<AcRowState>) {
+    setAcRows((prev) => ({ ...prev, [roomId]: { ...(prev[roomId] ?? DEFAULT_AC_ROW), ...patch } }));
+  }
+
+  async function saveAcRow(roomId: string) {
+    const row = acRows[roomId] ?? DEFAULT_AC_ROW;
+    patchAcRow(roomId, { saving: true, error: null, saved: false });
+    try {
+      await setRoomAirConditioners(roomId, row.count, row.capacityKw);
+      patchAcRow(roomId, { saving: false, saved: true });
+    } catch (err) {
+      patchAcRow(roomId, {
+        saving: false,
+        error: err instanceof ApiError ? err.message : "Could not save.",
+      });
+    }
+  }
 
   function updateFloorCount(n: number) {
     setFloorCount(n);
@@ -114,7 +135,7 @@ export default function OnboardingWizard() {
   }
 
   async function analyzeCurrentFloor() {
-    if (!buildingId || !currentFloor.file || !currentFloor.north) return;
+    if (!buildingId || !currentFloor.file || currentFloor.north === null) return;
     patchCurrentFloor({ analyzing: true, error: null });
     try {
       const result = await uploadFloorPlan(buildingId, currentFloor.level, currentFloor.file, currentFloor.north);
@@ -258,38 +279,25 @@ export default function OnboardingWizard() {
             </div>
           ) : (
             <div className="mt-6">
-              <div className="relative mx-auto max-w-md overflow-hidden rounded-xl border border-ink-100 bg-ink-50 dark:border-ink-800 dark:bg-ink-800/50">
-                {currentFloor.result?.annotated_plan_url ? (
-                  <img src={currentFloor.result.annotated_plan_url} alt={`Floor ${currentFloor.level} annotated plan`} className="w-full" />
-                ) : currentFloor.isPdf ? (
-                  <div className="flex flex-col items-center justify-center gap-2 py-16">
-                    <FileText size={28} className="text-ink-400" />
-                    <p className="text-[13px] text-ink-500">{currentFloor.file.name}</p>
-                  </div>
-                ) : (
-                  currentFloor.previewUrl && <img src={currentFloor.previewUrl} alt={`Floor ${currentFloor.level} plan`} className="w-full" />
-                )}
+              <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-center">
+                <div className="relative w-full max-w-md overflow-hidden rounded-xl border border-ink-100 bg-ink-50 dark:border-ink-800 dark:bg-ink-800/50">
+                  {currentFloor.result?.annotated_plan_url ? (
+                    <img src={currentFloor.result.annotated_plan_url} alt={`Floor ${currentFloor.level} annotated plan`} className="w-full" />
+                  ) : currentFloor.isPdf ? (
+                    <div className="flex flex-col items-center justify-center gap-2 py-16">
+                      <FileText size={28} className="text-ink-400" />
+                      <p className="text-[13px] text-ink-500">{currentFloor.file.name}</p>
+                    </div>
+                  ) : (
+                    currentFloor.previewUrl && <img src={currentFloor.previewUrl} alt={`Floor ${currentFloor.level} plan`} className="w-full" />
+                  )}
+                </div>
 
                 {!currentFloor.result && (
-                  <>
-                    {NORTH_ARROWS.map(({ dir, icon: Icon, className }) => (
-                      <button
-                        key={dir}
-                        type="button"
-                        onClick={() => patchCurrentFloor({ north: dir })}
-                        className={clsx(
-                          "absolute flex h-8 w-8 items-center justify-center rounded-full border shadow-sm transition",
-                          className,
-                          currentFloor.north === dir
-                            ? "border-primary-500 bg-primary-500 text-white"
-                            : "border-ink-200 bg-white text-ink-600 hover:border-primary-300 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200"
-                        )}
-                        aria-label={`North is ${dir}`}
-                      >
-                        <Icon size={16} />
-                      </button>
-                    ))}
-                  </>
+                  <div className="flex shrink-0 flex-col items-center gap-2 rounded-xl border border-ink-100 p-4 dark:border-ink-800">
+                    <p className="text-[12px] font-medium text-ink-600 dark:text-ink-300">Which way is north?</p>
+                    <CompassDial angleDeg={currentFloor.north} onChange={(angle) => patchCurrentFloor({ north: angle })} />
+                  </div>
                 )}
               </div>
 
@@ -297,9 +305,7 @@ export default function OnboardingWizard() {
                 <p className="text-[12px] text-ink-400">
                   {currentFloor.result
                     ? "Analyzed — room numbers shown on the plan."
-                    : currentFloor.north
-                      ? `North set: ${currentFloor.north}`
-                      : "Click an arrow on the plan to mark which edge faces north."}
+                    : "Drag the compass so its needle points toward true north on the plan."}
                 </p>
                 {!currentFloor.result && (
                   <SecondaryButton onClick={() => fileInputRef.current?.click()}>
@@ -319,7 +325,7 @@ export default function OnboardingWizard() {
                 <div className="mt-4 flex justify-end">
                   <PrimaryButton
                     onClick={analyzeCurrentFloor}
-                    className={clsx((!currentFloor.north || currentFloor.analyzing) && "pointer-events-none opacity-40")}
+                    className={clsx((currentFloor.north === null || currentFloor.analyzing) && "pointer-events-none opacity-40")}
                   >
                     {currentFloor.analyzing ? (
                       <>
@@ -338,15 +344,63 @@ export default function OnboardingWizard() {
                     <DoorOpen size={14} /> {currentFloor.result.rooms_saved} room{currentFloor.result.rooms_saved === 1 ? "" : "s"} detected
                   </p>
                   <div className="flex flex-col gap-2">
-                    {currentFloor.result.rooms.map((room) => (
-                      <div key={room.room_id} className="flex items-center justify-between rounded-xl border border-ink-100 px-4 py-2.5 dark:border-ink-800">
-                        <div>
-                          <p className="text-[13px] font-medium">{room.room_label}</p>
-                          <p className="text-[11px] capitalize text-ink-400">{room.room_type} · {room.primary_orientation}</p>
+                    {currentFloor.result.rooms.map((room) => {
+                      const ac = acRows[room.room_id] ?? DEFAULT_AC_ROW;
+                      return (
+                        <div key={room.room_id} className="rounded-xl border border-ink-100 px-4 py-2.5 dark:border-ink-800">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[13px] font-medium">{room.room_label}</p>
+                              <p className="text-[11px] capitalize text-ink-400">{room.room_type} · {room.primary_orientation}</p>
+                            </div>
+                            <span className="text-[12px] font-medium text-ink-600 dark:text-ink-300">{room.area_m2.toFixed(1)} m²</span>
+                          </div>
+
+                          <div className="mt-2.5 flex items-center gap-2 border-t border-ink-100 pt-2.5 dark:border-ink-800">
+                            <Wind size={13} className="shrink-0 text-ink-400" />
+                            <input
+                              type="number"
+                              min={0}
+                              max={20}
+                              value={ac.count}
+                              onChange={(e) => patchAcRow(room.room_id, { count: Number(e.target.value), saved: false })}
+                              className={clsx(inputClass, "w-16 px-2 py-1 text-[12px]")}
+                              aria-label={`AC units in ${room.room_label}`}
+                            />
+                            <span className="text-[11px] text-ink-400">units ×</span>
+                            <input
+                              type="number"
+                              min={0.1}
+                              step={0.1}
+                              value={ac.capacityKw}
+                              onChange={(e) => patchAcRow(room.room_id, { capacityKw: Number(e.target.value), saved: false })}
+                              className={clsx(inputClass, "w-20 px-2 py-1 text-[12px]")}
+                              aria-label={`AC capacity in ${room.room_label}`}
+                            />
+                            <span className="text-[11px] text-ink-400">kW each</span>
+                            <button
+                              type="button"
+                              onClick={() => saveAcRow(room.room_id)}
+                              disabled={ac.saving}
+                              className={clsx(
+                                "ml-auto flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium transition",
+                                ac.saved
+                                  ? "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300"
+                                  : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700"
+                              )}
+                            >
+                              {ac.saving ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : ac.saved ? (
+                                <Check size={12} />
+                              ) : null}
+                              {ac.saving ? "Saving…" : ac.saved ? "Saved" : "Save"}
+                            </button>
+                          </div>
+                          {ac.error && <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">{ac.error}</p>}
                         </div>
-                        <span className="text-[12px] font-medium text-ink-600 dark:text-ink-300">{room.area_m2.toFixed(1)} m²</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

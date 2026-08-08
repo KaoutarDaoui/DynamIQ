@@ -1,7 +1,7 @@
 .agents/
 .claude/
 .claude/
-
+docs/
 __pycache__/
 *.pyc
 .venv/

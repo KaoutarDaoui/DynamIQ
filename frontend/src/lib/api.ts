@@ -77,7 +77,10 @@ export function createBuilding(payload: BuildingCreatePayload): Promise<Building
   return request("/buildings", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export type NorthDirection = "top" | "bottom" | "left" | "right";
+// Clockwise degrees from the image's "up" edge to true north (0-359), set
+// via the compass dial. Any value is valid — the backend rounds to the
+// nearest of 8 compass points per wall.
+export type NorthAngleDeg = number;
 
 export interface RoomOutDto {
   room_id: string;
@@ -102,12 +105,31 @@ export function uploadFloorPlan(
   buildingId: string,
   floorLevel: number,
   file: File,
-  northDirection: NorthDirection
+  northAngleDeg: NorthAngleDeg
 ): Promise<FloorUploadResponseDto> {
   const form = new FormData();
-  form.append("north_direction", northDirection);
+  form.append("north_angle_deg", String(northAngleDeg));
   form.append("plan_file", file);
   return requestForm(`/buildings/${buildingId}/floors/${floorLevel}/upload`, form);
+}
+
+export interface AcOutDto {
+  ac_id: string;
+  cooling_capacity_kw: number | null;
+  power_kw: number | null;
+}
+
+// Replaces (not accumulates) all AC units for a room — safe to re-submit if
+// the user edits the count/capacity after an earlier save.
+export function setRoomAirConditioners(
+  roomId: string,
+  count: number,
+  capacityKw: number
+): Promise<AcOutDto[]> {
+  return request(`/rooms/${roomId}/air-conditioners`, {
+    method: "POST",
+    body: JSON.stringify({ count, capacity_kw: capacityKw }),
+  });
 }
 
 // Agent 2-4 (thermal prediction, diagnosis, supervision) don't exist yet, so
