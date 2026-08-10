@@ -86,6 +86,13 @@ class Floor(SQLModel, table=True):
     name: str | None = None
     floor_plan_url: str | None = None
     created_at: datetime | None = None
+    # Raw compass-dial input and the wall->cardinal-direction mapping derived
+    # from it (geometry_processor.compute_cardinal_orientations). Previously
+    # computed every run and discarded — persisted here so Agent 2 or a
+    # later re-open of this floor doesn't need to re-ask the user to click
+    # north again.
+    north_angle_deg: float | None = None
+    oriented_walls: dict[str, str] | None = Field(default=None, sa_column=Column(JSON))
 
 
 class Room(SQLModel, table=True):

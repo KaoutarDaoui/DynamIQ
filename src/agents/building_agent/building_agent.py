@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
+import os
+import uuid
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from sqlmodel import Session
 
 from .config import get_session
-from .db_manager import get_room_by_id, save_floor, save_room
-from .geometry_processor import auto_number_and_map_rooms, compute_cardinal_orientations
-from .schema_models import Building, Floor, Room, RoomConfig, default_room_config
-
-# No scale/height data is extracted from the plan, so volume is estimated
-# from a standard residential/institutional ceiling height.
-DEFAULT_CEILING_HEIGHT_M = 3.0
+from .db_manager import get_room_by_id
+from .graph import BuildingAgentState, building_graph
+from .schema_models import Building, RoomConfig, default_room_config
 
 
 class BuildingAgent:
@@ -37,61 +36,48 @@ class BuildingAgent:
             except StopIteration:
                 pass
 
-    def process_and_save_floor(
+    def run_graph(
         self,
+        file_bytes: bytes,
+        filename: str,
+        north_angle_deg: float,
         building_id: str,
         floor_level: int,
-        detected_rooms_list: list,
-        north_angle_deg: float,
+        floor_name: str | None = None,
+        expected_room_count: int | None = None,
     ) -> dict[str, Any]:
-        """Normalize room geometry, create ORM rows, and persist them."""
+        """Run Agent 1's LangGraph agentic loop for one floor and return the final state.
 
-        oriented_walls = compute_cardinal_orientations(north_angle_deg)
-        floor_id = f"{building_id}-floor-{floor_level}"
+        Replaces the former one-shot `process_and_save_floor`: extraction,
+        geometry normalization, a sanity-checking loop with budgeted Groq
+        tool-calls for low-confidence rooms, and persistence all happen
+        inside `graph.building_graph`. This method just validates the
+        building exists, seeds the initial state, and invokes it.
+        """
 
         with self._session_scope() as session:
-            building = session.get(Building, building_id)
-            if building is None:
+            if session.get(Building, building_id) is None:
                 raise LookupError(f"Building not found: {building_id}")
 
-            floor = save_floor(
-                session,
-                Floor(floor_id=floor_id, building_id=building_id, level=floor_level),
-            )
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY not configured")
 
-            normalized_rooms = auto_number_and_map_rooms(
-                detected_rooms_list, building_id, floor_level, oriented_walls
-            )
-            saved_rooms: list[Room] = []
-            for room_data in normalized_rooms:
-                room_config = room_data.get("config_json") or default_room_config()
-                area_m2 = float(room_data["area_m2"])
-                thermal = room_config.get("thermal", {})
-                room = Room(
-                    room_id=room_data["room_id"],
-                    floor_id=floor_id,
-                    room_label=room_data["room_label"],
-                    room_type=str(room_data.get("room_type", "classroom")),
-                    area_m2=area_m2,
-                    volume_m3=area_m2 * DEFAULT_CEILING_HEIGHT_M,
-                    primary_orientation=str(room_data.get("primary_orientation", "unknown")),
-                    r_wall=float(thermal.get("wall_r_value", 1.8)),
-                    c_zone=float(thermal.get("estimated_C_zone", 145000.0)),
-                    config_json=room_config,
-                )
-                saved_rooms.append(save_room(session, room))
-
-            return {
-                "building_id": building_id,
-                "floor": floor,
-                "rooms": saved_rooms,
-                "oriented_walls": oriented_walls,
-                # bbox/sequence_number are geometry-only and never persisted
-                # to the rooms table — callers that need to render the plan
-                # (e.g. the annotated-plan endpoint) must use this, not
-                # "rooms".
-                "normalized_rooms": normalized_rooms,
-            }
+        initial_state: BuildingAgentState = {
+            "file_bytes": file_bytes,
+            "filename": filename,
+            "north_angle_deg": north_angle_deg,
+            "building_id": building_id,
+            "floor_level": floor_level,
+            "floor_name": floor_name,
+            "expected_room_count": expected_room_count,
+            "api_key": api_key,
+            "run_log": [],
+        }
+        # Each upload is its own independent run — a fresh thread_id per
+        # call means MemorySaver's checkpoints never bleed between uploads.
+        run_config: RunnableConfig = {"configurable": {"thread_id": str(uuid.uuid4())}}
+        return building_graph.invoke(initial_state, config=run_config)
 
     def get_thermal_parameters(self, room_id: str) -> dict[str, float | str]:
         """Return the room's thermal resistance and capacitance for Agent 2."""

@@ -1,6 +1,6 @@
 import type { AgentStatus, Building } from "../types";
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8010";
 
 // Fixed until the frontend has an org switcher / auth-derived org context.
 export const DEFAULT_ORG_ID = "ORG_AMAZON";
@@ -89,15 +89,21 @@ export interface RoomOutDto {
   area_m2: number;
   volume_m3: number;
   primary_orientation: string;
+  needs_review: boolean;
 }
 
 export interface FloorUploadResponseDto {
   building_id: string;
   floor_level: number;
+  floor_id: string;
   rooms_saved: number;
+  rooms_flagged: number;
   room_ids: string[];
+  flagged_room_ids: string[];
   rooms: RoomOutDto[];
   oriented_walls: Record<string, string>;
+  iterations_used: number;
+  run_id: string;
   annotated_plan_url: string | null;
 }
 

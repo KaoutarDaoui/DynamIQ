@@ -342,15 +342,36 @@ export default function OnboardingWizard() {
                 <div className="mt-5">
                   <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-ink-800 dark:text-ink-100">
                     <DoorOpen size={14} /> {currentFloor.result.rooms_saved} room{currentFloor.result.rooms_saved === 1 ? "" : "s"} detected
+                    {currentFloor.result.rooms_flagged > 0 && (
+                      <span className="ml-1 flex items-center gap-1 text-amber-700 dark:text-amber-400">
+                        <AlertTriangle size={12} />
+                        {currentFloor.result.rooms_flagged} need{currentFloor.result.rooms_flagged === 1 ? "s" : ""} review
+                      </span>
+                    )}
                   </p>
                   <div className="flex flex-col gap-2">
                     {currentFloor.result.rooms.map((room) => {
                       const ac = acRows[room.room_id] ?? DEFAULT_AC_ROW;
                       return (
-                        <div key={room.room_id} className="rounded-xl border border-ink-100 px-4 py-2.5 dark:border-ink-800">
+                        <div
+                          key={room.room_id}
+                          className={clsx(
+                            "rounded-xl border px-4 py-2.5",
+                            room.needs_review
+                              ? "border-amber-300 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/20"
+                              : "border-ink-100 dark:border-ink-800"
+                          )}
+                        >
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-[13px] font-medium">{room.room_label}</p>
+                              <p className="flex items-center gap-1.5 text-[13px] font-medium">
+                                {room.room_label}
+                                {room.needs_review && (
+                                  <span className="flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                                    <AlertTriangle size={10} /> Needs review
+                                  </span>
+                                )}
+                              </p>
                               <p className="text-[11px] capitalize text-ink-400">{room.room_type} · {room.primary_orientation}</p>
                             </div>
                             <span className="text-[12px] font-medium text-ink-600 dark:text-ink-300">{room.area_m2.toFixed(1)} m²</span>

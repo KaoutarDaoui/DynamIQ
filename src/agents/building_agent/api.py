@@ -14,12 +14,12 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, func, select
 
 from .building_agent import BuildingAgent
-from .config import get_session
+from .config import engine, get_session
 from .db_manager import replace_room_air_conditioners, save_building, save_floor
+from .graph import ensure_building_agent_runs_table
 from .plan_annotator import annotate_plan_with_room_numbers
 from .schema_models import Building, Floor, Room
 from .storage_client import upload_annotated_plan
-from .vision_processor import extract_rooms_from_file
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,11 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def _ensure_run_log_table() -> None:
+    ensure_building_agent_runs_table(engine)
+
+
 class RoomOut(BaseModel):
     room_id: str
     room_label: str
@@ -48,6 +53,7 @@ class RoomOut(BaseModel):
     area_m2: float
     volume_m3: float
     primary_orientation: str
+    needs_review: bool = False
 
 
 class OnboardingResponse(BaseModel):
@@ -55,10 +61,15 @@ class OnboardingResponse(BaseModel):
 
     building_id: str
     floor_level: int
+    floor_id: str
     rooms_saved: int
+    rooms_flagged: int
     room_ids: list[str] = Field(default_factory=list)
+    flagged_room_ids: list[str] = Field(default_factory=list)
     rooms: list[RoomOut] = Field(default_factory=list)
     oriented_walls: dict[str, str]
+    iterations_used: int
+    run_id: str
     annotated_plan_url: str | None = None
 
 
@@ -213,6 +224,10 @@ async def upload_floor_plan(
         description="Architectural plan — PDF, JPEG, PNG, WEBP, or GIF"
     )],
     session: SessionDep,
+    floor_name: Annotated[str | None, Form(description="Optional display name for the floor")] = None,
+    expected_room_count: Annotated[
+        int | None, Form(description="Optional sanity-check count used by the agentic loop's count_match gate")
+    ] = None,
 ) -> OnboardingResponse:
     if not plan_file.filename:
         raise HTTPException(status_code=422, detail="Uploaded file must have a filename")
@@ -228,47 +243,48 @@ async def upload_floor_plan(
     if not file_bytes:
         raise HTTPException(status_code=422, detail="Uploaded file is empty")
 
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    if not groq_api_key:
+    if not os.getenv("GROQ_API_KEY"):
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
 
+    agent = BuildingAgent(session_factory=lambda: iter([session]))
     try:
-        detected_rooms = extract_rooms_from_file(
+        result = agent.run_graph(
             file_bytes=file_bytes,
             filename=plan_file.filename,
-            api_key=groq_api_key,
+            north_angle_deg=north_angle_deg,
+            building_id=building_id,
+            floor_level=floor_level,
+            floor_name=floor_name,
+            expected_room_count=expected_room_count,
         )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Vision extraction failed: {exc}") from exc
 
-    if not detected_rooms:
+    # Extraction happens inside the graph, so an empty-detection failure only
+    # surfaces here — the floor row from `persist` already exists (with 0
+    # rooms) by this point; re-uploading a better plan for the same floor
+    # will just overwrite it via `merge()`, so this is harmless.
+    if result.get("extraction_raw_count", 0) == 0:
         raise HTTPException(
             status_code=422,
             detail="No rooms detected. Check image quality or try a clearer plan.",
         )
 
-    agent = BuildingAgent(session_factory=lambda: iter([session]))
-    try:
-        result = agent.process_and_save_floor(
-            building_id=building_id,
-            floor_level=floor_level,
-            detected_rooms_list=detected_rooms,
-            north_angle_deg=north_angle_deg,
-        )
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    floor_id = f"{building_id}-floor-{floor_level}"
 
     # Best-effort: rooms are already persisted at this point, so a rendering
     # or upload failure here shouldn't turn a successful save into a 500.
     annotated_plan_url: str | None = None
     try:
         annotated_bytes = annotate_plan_with_room_numbers(
-            file_bytes, plan_file.filename, result["normalized_rooms"]
+            file_bytes, plan_file.filename, result["rooms"]
         )
         annotated_plan_url = upload_annotated_plan(annotated_bytes, building_id, floor_level)
-        floor = result["floor"]
+        floor = session.get(Floor, floor_id) or result["floor"]
         floor.floor_plan_url = annotated_plan_url
         save_floor(session, floor)
     except Exception:
@@ -278,23 +294,30 @@ async def upload_floor_plan(
             floor_level,
         )
 
+    flagged_ids = set(result.get("flagged_rooms", []))
     return OnboardingResponse(
         building_id=building_id,
         floor_level=floor_level,
-        rooms_saved=len(result["rooms"]),
-        room_ids=[room.room_id for room in result["rooms"]],
+        floor_id=floor_id,
+        rooms_saved=len(result.get("saved_rooms", [])),
+        rooms_flagged=len(result.get("flagged_rooms", [])),
+        room_ids=result.get("saved_rooms", []),
+        flagged_room_ids=result.get("flagged_rooms", []),
         rooms=[
             RoomOut(
-                room_id=room.room_id,
-                room_label=room.room_label,
-                room_type=room.room_type,
-                area_m2=room.area_m2,
-                volume_m3=room.volume_m3,
-                primary_orientation=room.primary_orientation,
+                room_id=room["room_id"],
+                room_label=room["room_label"],
+                room_type=room.get("room_type", "classroom"),
+                area_m2=room["area_m2"],
+                volume_m3=room["volume_m3"],
+                primary_orientation=room.get("primary_orientation", "unknown"),
+                needs_review=room["room_id"] in flagged_ids,
             )
             for room in result["rooms"]
         ],
         oriented_walls=result["oriented_walls"],
+        iterations_used=result.get("iteration", 0),
+        run_id=result["run_id"],
         annotated_plan_url=annotated_plan_url,
     )
 
