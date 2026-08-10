@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from datetime import datetime, timezone
@@ -411,17 +410,3 @@ def run_investigation(
 
 def thread_config(anomaly_id: int) -> dict[str, dict[str, str]]:
     return {"configurable": {"thread_id": f"anomaly-{anomaly_id}"}}
-
-
-def resume_investigation(
-    engine: Engine,
-    anomaly_id: int,
-    api_key: str,
-    now: datetime | None = None,
-    llm_caller: Callable[..., str] | None = None,
-    checkpointer: Any | None = None,
-) -> DiagnosisState:
-    """Continue a crashed investigation from its last checkpoint (state saved
-    after every node). Nodes that already completed are not re-run."""
-    graph = build_graph(engine, api_key, now=now, llm_caller=llm_caller, checkpointer=checkpointer)
-    return graph.invoke(None, config=thread_config(anomaly_id))

@@ -26,8 +26,8 @@ def _cached(path: str) -> SqliteSaver:
 def get_checkpointer(path: str | Path | None = None) -> SqliteSaver:
     """Persistent LangGraph checkpointer (sqlite file).
 
-    Crash-safe: the state is saved after every node; a crashed investigation
-    can be resumed from the same thread (see graph.resume_investigation).
+    Crash-safe: the state is saved after every node, so a crashed investigation
+    can be resumed from the same thread (the graph re-invokes the thread).
     """
     checkpoint_path = Path(path) if path else get_default_checkpoint_path()
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)

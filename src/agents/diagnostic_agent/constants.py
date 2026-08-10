@@ -23,7 +23,6 @@ def groq_extra_payload(model: str) -> dict[str, str]:
     return {}
 
 TOOL_CALL_BUDGET = 8
-MINIMUM_EVIDENCE_TOOLS = ("get_sensor_history", "get_calendar")
 
 DEFAULT_COMFORT_BOUNDS_DELTA_C = 2.0
 
