@@ -139,13 +139,25 @@ def _pdf_to_base64_jpeg(pdf_bytes: bytes, page_index: int = 0) -> str:
 # Our on_demand tier's 8000 tokens/minute budget is tight enough (a single
 # extraction costs ~4500-4800 tokens) that back-to-back uploads routinely
 # collide with a still-open window — Groq returns 429 with a "try again in
-# N.Ns" hint in that case rather than rejecting the request outright.
-MAX_RATE_LIMIT_RETRIES = 2
+# N.Ns" hint in that case rather than rejecting the request outright. The
+# LangGraph agentic loop (graph.py) makes several more calls per upload
+# (extraction + up to 5 rounds of decide_action + tool), so a low retry
+# budget here means the whole run aborts on a single transient 429 — bumped
+# from 2 to 5 so a run has real odds of riding out a busy minute.
+MAX_RATE_LIMIT_RETRIES = 5
 RETRY_AFTER_PATTERN = re.compile(r"try again in ([\d.]+)s")
 
 
-def _call_groq_vision(image_b64: str, media_type: str, api_key: str) -> str:
-    """Send an image to Groq Vision and return the raw text response."""
+def _call_groq_vision(image_b64: str, media_type: str, api_key: str, prompt: str = EXTRACTION_PROMPT) -> str:
+    """Send an image to Groq Vision and return the raw text response.
+
+    `prompt` defaults to the room-extraction prompt (this module's own use),
+    but graph.py's tool nodes (zoom/scale/adjacency/recount) pass their own —
+    without this parameter they'd silently get room-extraction output no
+    matter what they asked for, since a plain positional call couldn't
+    override the text sent at all. Verified live: this exact bug meant
+    tool_recount could never parse an "exact_count" out of a room list.
+    """
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -166,7 +178,7 @@ def _call_groq_vision(image_b64: str, media_type: str, api_key: str) -> str:
                     },
                     {
                         "type": "text",
-                        "text": EXTRACTION_PROMPT,
+                        "text": prompt,
                     },
                 ],
             }

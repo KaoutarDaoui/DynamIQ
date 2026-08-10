@@ -8,42 +8,41 @@ from typing import Any
 from .schema_models import default_room_config
 
 
-_ORIENTATION_ROTATIONS: dict[str, dict[str, str]] = {
-    "top": {
-        "wall_top": "north",
-        "wall_right": "east",
-        "wall_bottom": "south",
-        "wall_left": "west",
-    },
-    "right": {
-        "wall_top": "west",
-        "wall_right": "north",
-        "wall_bottom": "east",
-        "wall_left": "south",
-    },
-    "bottom": {
-        "wall_top": "south",
-        "wall_right": "west",
-        "wall_bottom": "north",
-        "wall_left": "east",
-    },
-    "left": {
-        "wall_top": "east",
-        "wall_right": "south",
-        "wall_bottom": "west",
-        "wall_left": "north",
-    },
+# 8-way compass, in clockwise order starting from north — index i sits at
+# bearing i*45°, so nearest-point lookup is a single round() + modulo.
+_COMPASS_POINTS = [
+    "north", "northeast", "east", "southeast",
+    "south", "southwest", "west", "northwest",
+]
+
+# Bearing (clockwise degrees from "up") of each image edge in an unrotated plan.
+_EDGE_BEARINGS = {
+    "wall_top": 0.0,
+    "wall_right": 90.0,
+    "wall_bottom": 180.0,
+    "wall_left": 270.0,
 }
 
 
-def compute_cardinal_orientations(north_direction: str) -> dict[str, str]:
-    """Map plan-relative wall positions to real-world cardinal directions."""
+def _nearest_compass_point(bearing_deg: float) -> str:
+    index = round((bearing_deg % 360) / 45) % 8
+    return _COMPASS_POINTS[index]
 
-    normalized_direction = north_direction.strip().lower()
-    if normalized_direction not in _ORIENTATION_ROTATIONS:
-        valid = ", ".join(sorted(_ORIENTATION_ROTATIONS))
-        raise ValueError(f"north_direction must be one of: {valid}")
-    return dict(_ORIENTATION_ROTATIONS[normalized_direction])
+
+def compute_cardinal_orientations(north_angle_deg: float) -> dict[str, str]:
+    """Map plan-relative wall positions to real-world compass directions.
+
+    north_angle_deg: clockwise degrees from the image's "up" direction to
+    true north (0 = north is straight up, 90 = north points at the image's
+    right edge, etc). Comes from the frontend's free-rotation compass dial —
+    any value is valid, it's normalized mod 360 and rounded to the nearest
+    of 8 compass points per wall.
+    """
+
+    return {
+        wall: _nearest_compass_point(edge_bearing - north_angle_deg)
+        for wall, edge_bearing in _EDGE_BEARINGS.items()
+    }
 
 
 def _extract_bbox(room: Mapping[str, Any]) -> tuple[float, float, float, float]:

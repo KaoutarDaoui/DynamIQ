@@ -7,7 +7,7 @@ __tablename__.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field as PydanticField
@@ -52,6 +52,17 @@ class RoomConfig(BaseModel):
     adjacency: Adjacency = PydanticField(default_factory=Adjacency)
 
 
+class Organisation(SQLModel, table=True):
+    __tablename__ = "organisations"
+
+    org_id: str = Field(primary_key=True)
+    name: str
+    email: str | None = None
+    country_code: str = "DZ"
+    plan: str = "free"
+    created_at: datetime | None = None
+
+
 class Building(SQLModel, table=True):
     __tablename__ = "buildings"
 
@@ -63,6 +74,7 @@ class Building(SQLModel, table=True):
     total_floors: int
     country_code: str = "DZ"
     created_at: datetime | None = None
+    org_id: str | None = Field(default=None, foreign_key="organisations.org_id")
 
 
 class Floor(SQLModel, table=True):
@@ -74,6 +86,13 @@ class Floor(SQLModel, table=True):
     name: str | None = None
     floor_plan_url: str | None = None
     created_at: datetime | None = None
+    # Raw compass-dial input and the wall->cardinal-direction mapping derived
+    # from it (geometry_processor.compute_cardinal_orientations). Previously
+    # computed every run and discarded — persisted here so Agent 2 or a
+    # later re-open of this floor doesn't need to re-ask the user to click
+    # north again.
+    north_angle_deg: float | None = None
+    oriented_walls: dict[str, str] | None = Field(default=None, sa_column=Column(JSON))
 
 
 class Room(SQLModel, table=True):
@@ -81,7 +100,6 @@ class Room(SQLModel, table=True):
 
     room_id: str = Field(primary_key=True)
     floor_id: str = Field(foreign_key="floors.floor_id", index=True)
-    building_id: str = Field(foreign_key="buildings.building_id", index=True)
     room_label: str
     room_type: str = "classroom"
     area_m2: float
@@ -101,6 +119,24 @@ class RoomAdjacency(SQLModel, table=True):
     adjacent_room_id: str = Field(primary_key=True)
     direction: str
     wall_type: str = "internal"
+
+
+class AirConditioner(SQLModel, table=True):
+    __tablename__ = "air_conditioners"
+
+    ac_id: str = Field(primary_key=True)
+    room_id: str = Field(foreign_key="rooms.room_id", index=True)
+    manufacturer: str | None = None
+    model: str | None = None
+    serial_number: str | None = Field(default=None, unique=True)
+    cooling_capacity_kw: float | None = None
+    heating_capacity_kw: float | None = None
+    power_kw: float | None = None
+    installation_date: date | None = None
+    status: str = "active"
+    created_at: datetime | None = None
+    pos_x: float | None = None
+    pos_y: float | None = None
 
 
 def default_room_config() -> dict[str, Any]:
