@@ -282,7 +282,7 @@ The final gate is deterministic and based on explicit rules such as anomaly seve
 
 DynamIQ uses **Supabase PostgreSQL** as the shared persistence layer.
 
-The database contains 13 main tables covering:
+The database contains 14 main tables covering:
 
 * organizations
 * buildings
@@ -297,6 +297,7 @@ The database contains 13 main tables covering:
 * diagnoses
 * alerts
 * audit logs
+* building agent runs
 
 The database therefore acts as the **shared communication layer between the agents**.
 
