@@ -16,6 +16,9 @@ psycopg2-binary>=2.9
 # LLM client
 anthropic>=0.40
 
+# Agent 3 orchestration graph (LangGraph)
+langgraph>=1.0
+
 # Building Agent API + vision pipeline
 fastapi==0.111.0
 starlette==0.37.2

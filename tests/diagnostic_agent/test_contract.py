@@ -75,6 +75,50 @@ class TestValidateOutput:
         assert result.valid is True
         assert result.output["recurrence"]["seen_before"] is False
 
+    def test_non_dict_recurrence_defaults_gracefully(self) -> None:
+        raw = _valid_raw(recurrence="not a dict")
+        result = validate_output(raw, anomaly_id=1, room_id="room-204")
+        assert result.valid is True
+        assert result.output["recurrence"]["seen_before"] is False
+
+    def test_missing_action_type_is_coerced_to_inspection_required(self) -> None:
+        raw = _valid_raw(proposed_action={"delta_c": 2.0})
+        result = validate_output(raw, anomaly_id=1, room_id="room-204")
+        assert result.valid is True
+        assert result.output["proposed_action"]["type"] == "inspection_required"
+
+    def test_non_string_cause_fails(self) -> None:
+        result = validate_output(_valid_raw(cause=42), anomaly_id=1, room_id="room-204")
+        assert result.valid is False
+        assert any("cause" in e for e in result.errors)
+
+    def test_numeric_string_energy_fails(self) -> None:
+        result = validate_output(_valid_raw(energy_wasted_kwh="57.0"), anomaly_id=1, room_id="room-204")
+        assert result.valid is False
+        assert any("energy_wasted_kwh" in e for e in result.errors)
+
+
+class TestDiagnosisContract:
+    def test_model_roundtrip_preserves_extra_action_keys(self) -> None:
+        from agents.diagnostic_agent.contract import DiagnosisContract
+
+        raw = _valid_raw()
+        model = DiagnosisContract.model_validate(raw)
+        output = model.as_output(anomaly_id=1, room_id="room-204")
+        assert output["proposed_action"]["target_setpoint_c"] == 16.0
+        assert output["proposed_action"]["delta_c"] == 6.0
+        assert output["energy_wasted_kwh"] == 57.0
+
+    def test_validated_output_dict_shape(self) -> None:
+        from agents.diagnostic_agent.contract import DiagnosisContract
+
+        output = DiagnosisContract.model_validate(_valid_raw()).as_output(anomaly_id=1, room_id="room-204")
+        assert set(output.keys()) == {
+            "anomaly_id", "room_id", "cause", "cause_confidence", "evidence",
+            "energy_wasted_kwh", "energy_wasted_basis", "proposed_action",
+            "recurrence", "message",
+        }
+
 
 class TestTemplatedFallback:
     def test_fallback_is_always_inspection_required_and_undetermined(self) -> None:

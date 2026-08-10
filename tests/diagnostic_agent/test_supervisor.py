@@ -90,7 +90,7 @@ class TestCooldownActive:
         assert cooldown_active(recent, NOW) is True
 
     def test_old_diagnosis_outside_window_is_not_active(self) -> None:
-        recent = [{"created_at": NOW - timedelta(days=30)}]
+        recent = [{"created_at": NOW - timedelta(days=constants.COOLDOWN_DAYS + 1)}]
         assert cooldown_active(recent, NOW) is False
 
     def test_empty_history_is_not_active(self) -> None:

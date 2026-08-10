@@ -1,312 +1,256 @@
 # DynamIQ
 
-Predictive HVAC control for buildings without a Building Management System.
-Instead of reacting *after* a room overheats, DynamIQ **predicts** what will
-happen (physics + weather), **plans** the optimal cooling schedule 24h ahead,
-and **acts** pre-emptively. This repo holds the agents and Python engine only
-— no AWS deployment, no hosted database. Everything runs against a real
-Supabase/Postgres instance (or a throwaway local one from `dev/`).
+**HVAC prédictive pour bâtiments sans BMS.**
 
-Versioned note: the prototype Phase-0 scaffolding originally lived under
-`src/dynamiq/`; the four working agents live under `src/agents/` and are the
-real builds. The `src/dynamiq/` package is now **legacy dead scaffolding** —
-every module still raises `NotImplementedError`. See [Legacy scaffolding](#legacy-scaffolding).
+Au lieu de réagir après qu'une pièce surchauffe, DynamIQ **prédit** (physique +
+météo), **planifie** le refroidissement optimal 24 h à l'avance, et **agit**
+préventivement.
 
-## The problem DynamIQ solves
-
-Most buildings (like ESI Algiers) have no BMS. Each room's AC works reactively:
-
-```
-Temp > 24°C  →  AC turns ON  →  Room cools  →  AC turns OFF  →  heats up →  repeat
-```
-
-DynamIQ flips this: instead of reacting after the fact, it predicts, plans,
-and cools pre-emptively.
+**Cible : ESI Alger** — bâtiment sans système de gestion centralisé, climatiseurs
+split unitaires indépendants.
 
 ---
 
-## Architecture — 4 Agents
+## Architecture Globale
 
 ```
-                    BUILDING
-                       │
-                       ▼
-   ┌────────────────────────────┐
-   │ Agent 1 — Building          │  Describes the building:
-   │ (geometry, envelope)       │  walls, windows, orientation, area
-   └────────────┬───────────────┘
-                │  R, C, envelope data  (via rooms/floors/... tables)
-                ▼
-   ┌────────────────────────────┐
-   │ Agent 2 — Thermal          │  Physics brain (no LLM):
-   │ RC Model + Calibration     │  predicts temp, self-calibrates,
-   │ + MPC                       │  optimizes setpoints, flags anomalies
-   └────────────┬───────────────┘
-                │
-     predicted ≠ measured ?
-                │ yes  (thermal_anomaly)
-                ▼
-   ┌────────────────────────────┐
-   │ Agent 3 — Diagnostic        │  Investigates WHY (Groq LLM, 7 tools):
-   │ (event-driven)              │  cause + proposed action
-   └────────────┬───────────────┘
-                │ cause + action
-                ▼
-   ┌────────────────────────────┐
-   │ Agent 4 — Supervisor        │  Deterministic decision layer:
-   │ (orchestrator)               │  autonomous / human_alert / log_only
-   └────────────────────────────┘  + runs the whole cycle
+      ┌────────────────────── AGENT 4 · SUPERVISOR ──────────────────────┐
+      │  Orchestrateur — boucle toutes les 15 min                       │
+      │  Seul paquet autorisé à importer les 3 autres agents            │
+      │  Gate déterministe : autonomous / human_alert / log_only        │
+      └──────────────┬──────────────────┬──────────────────┬────────────┘
+                     │                  │                  │
+                     ▼                  ▼                  ▼
+      ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+      │ AGENT 1      │    │ AGENT 2      │    │ AGENT 3      │
+      │ Building     │    │ Thermal      │    │ Diagnostic   │
+      │ Plan → R/C   │    │ RC+MPC+Anom. │    │ LLM, 7 outils │
+      └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+             │                   │                   │
+             └───────────────────┼───────────────────┘
+                                 ▼
+      ┌──────────────── BDD POSTGRES PARTAGÉE (Supabase) ───────────────┐
+      │ rooms · sensor_readings · rc_model_params · anomalies         │
+      │ mpc_schedules · diagnoses · audit_log · alerts · …            │
+      └────────────────────────────────┬──────────────────────────────┘
+                                       ▼
+      ┌──────────────────────────────────────────────────────────┐
+      │ ALERTES — dispatch par Agent 4 (log local + webhook)     │
+      └──────────────────────────────────────────────────────────┘
 ```
 
-**Key rule:** Agents 2 and 3 never import each other's code (nor Agent 1's) —
-they talk only through the shared Supabase tables they own/read. Agent 4
-(`supervisor/orchestrate.py`) is the *only* place allowed to import the other
-agents, because it sits above them as the coordinator.
+**Règle d'or :** les Agents 1, 2 et 3 ne s'importent jamais mutuellement — ils
+communiquent uniquement via les tables Postgres partagées. **Agent 4 est le seul
+coordinateur** (il est le seul autorisé à faire `import` des trois autres).
 
 ---
 
-## Repo layout (`src/agents/`)
+## Les 4 Agents
 
-The four packages mirror the four agents. `src/dynamiq/` is legacy and unused.
+### Agent 1 — Building (`src/agents/building_agent/`)
 
-```
-src/agents/
-  __init__.py                 Lazy re-exports (PEP 562)
+**Rôle :** transformer un plan d'étage (PDF/JPEG/PNG/WEBP/GIF) en données
+thermiques structurées et persistées.
 
-  building_agent/             Agent 1 — floor plan → structure
-    __init__.py
-    building_agent.py         BuildingAgent: process_and_save_floor(), get_thermal_parameters()
-    vision_processor.py       Groq Vision: plan → rooms inventory (PDF/JPEG/PNG/WEBP/GIF)
-    geometry_processor.py     wall positions → cardinal orientations; auto-number rooms
-    schema_models.py          SQLModel: Building/Floor/Room/RoomAdjacency + config models
-    db_manager.py             SQLModel CRUD (save/load buildings, floors, rooms)
-    api.py                    FastAPI app: POST /buildings, POST /floors/{level}/upload
-    config.py                 shared SQLAlchemy engine + get_session() from DATABASE_URL
+**Aujourd'hui (fonctionne)**
+1. `vision_processor.py` : détection du type de fichier (magic bytes), conversion
+   image en JPEG 512 px (budget tokens Groq), **Groq Vision** `qwen/qwen3.6-27b`
+   → JSON array de pièces (`room_label`, `bbox`, `area_m2`, `external_walls`,
+   `has_windows`, `room_type`, `primary_orientation`).
+2. `geometry_processor.py` : `auto_number_and_map_rooms` (numérotation
+   `room-101`…), `compute_cardinal_orientations` (N/S/E/W via clic "nord").
+3. `building_agent.py` : construction de `config_json` (envelope / thermal /
+   hvac / adjacency) + persistance via `db_manager.py`.
 
-  thermal_agent/              Agent 2 — physics brain (deterministic, no LLM)
-    __init__.py
-    handler.py                Fast-loop entry: fetch → build model → MPC → persist → anomalies
-    db.py                     Raw-SQL access to buildings/floors/rooms/adjacencies/readings
-    zone_model.py             Lumped RC zone model (envelope → R/C/UA, sanity gate)
-    rc.py                     1st-order RC physics: fit_rc / simulate / one-step-ahead
-    mpc.py                    cvxpy 24h setpoint optimizer (energy + carbon)
-    calibrate.py              RC calibration sweep against sensor history
-    anomaly.py                anomaly pipeline: sensor validity, comfort, thermal, drift
-    weather.py                Open-Meteo (+pvlib) temp/GHI forecast; solar_gain_w()
-    carbon.py                 ElectricityMaps grid carbon-intensity forecast
-    constants.py              thermal/energy constants, tariffs, thresholds
+**Écrit :** `buildings`, `floors`, `rooms`, `room_adjacencies`.
 
-  diagnostic_agent/           Agent 3 — WHY (Groq LLM, event-driven)
-    __init__.py
-    diagnose.py               diagnose_anomaly(): build contract → LLM+tools → validate → route
-    tools.py                  TOOL_REGISTRY: 7 read-only tools + schemas
-    contract.py               Output-contract validation + deterministic fallback
-    supervisor.py             Deterministic decision gate: autonomous/human_alert/log_only
-    db.py                     Raw-SQL reads (anomalies, readings, schedules) + writes diagnoses
-    constants.py              Groq config, tool budget, defaults
-
-  supervisor/                 Agent 4 — orchestration (the coordinator)
-    __init__.py
-    orchestrate.py            run_full_cycle(): fast loop + calibration-if-due + diagnosis
-    scheduler.py              run_forever()/run_n_cycles() timed driver
-    channels.py               AlertChannel: LogChannel / WebhookChannel / dispatch
-    db.py                     poll undiagnosed anomalies, last-calibration time
-    constants.py              loop intervals, alert log path, webhook timeout
-```
-
-Supporting files:
-
-```
-dev/                      throwaway test data (seed scripts + local Postgres compose)
-examples/sample_building.json   one-zone sample (ESI Algiers, Room 204)
-scripts/run_simulation.py       end-to-end demo wiring (currently a stub)
-tests/                          pytest suites, one package per agent
-pyproject.toml / requirements.txt / .env.example
-```
-
-Every module in the four `src/agents/` packages is a real implementation with
-tests; the only unimplemented code left in the repo is the legacy
-`src/dynamiq/` package and `scripts/run_simulation.py`.
+> ⚠️ **Évolution prévue — NON VALIDÉ** *(graphe LangGraph "extract / validate /
+> correct")* :
+> ```
+> extract_initial (Groq Vision) → geometry_process → sanity_gate
+>   ├─ confident ───────────────► persist
+>   ├─ faible confiance + budget ► decide_action → run_tool → loop
+>   │        (zoom_room · detect_scale · check_adjacency · recount_rooms)
+>   └─ budget épuisé ─────────────► flag_for_review → persist
+> ```
+> Budget cible : max 3 itérations, 2 appels Groq Vision / itération.
 
 ---
 
-## Agent 1 — Building
+### Agent 2 — Thermal (`src/agents/thermal_agent/`)
 
-**Job:** turn a floor plan into structured thermal-relevant data and persist
-it. Built on the `rooms` table (Supabase Postgres):
+**Rôle :** cerveau physique — prédire, calibrer, optimiser, détecter. **Python
+pur, zéro LLM** (100 % déterministe et auditable).
 
-| Column | Type | Description |
+**Boucle (toutes les 15 min) par pièce instrumentée :**
+1. **Observe** : capteurs, météo (Open-Meteo, cache 1 h, fallback offline pvlib),
+   occupation, prix, carbone (ElectricityMaps, fallback offline).
+2. **Prédit** : modèle RC 1er ordre, DT = 900 s.
+3. **Optimise** : MPC (cvxpy/ECOS) sur 24 h — minimiser coût + λ·carbone,
+   contraintes confort + puissance AC → écrit `mpc_schedules`.
+4. **Détecte** (3 stages) :
+   - `sensor_fault` : pas de lecture / figé ≥ 2 h / hors [5, 45] °C
+   - `comfort_violation` : occupé et T hors [20, 26 °C]
+   - `thermal_anomaly` : `|T_mesuré − T_prédit| > max(3·RMSE, 1.0 °C)` sur 4
+     échantillons consécutifs.
+5. **Calibre** (toutes les 24 h si due) : fit R/C (scipy `least_squares`),
+   fenêtre 21 j, split 70/30 — **accepté uniquement si le RMSE de validation
+   baisse**. Dérive → total `rc_model_params` versionnée.
+
+### Les deux prédictions d'Agent 2 (ne pas confondre)
+
+| | Prédiction One-Step (15 min) | Prédiction MPC (24 h) |
 |---|---|---|
-| `room_id` | text | e.g. `room-101` (auto-numbered) |
-| `floor_id` | text | which floor |
-| `room_label` | text | human label |
-| `area_m2` | float | zone floor area |
-| `primary_orientation` | text | N / S / E / W from plan alignment |
-| `config_json` | JSONB | full envelope / thermal / HVAC / adjacency breakdown |
+| **Question** | « Dans 15 min, quelle température ? » | « Sur 24 h, quels setpoints optimaux ? » |
+| **Méthode** | Modèle RC 1er ordre (équation discrète, DT = 900 s) | Optimisation cvxpy/ECOS (96 pas de 15 min) |
+| **But** | Détecter si le modèle diverge de la réalité | Minimiser coût énergie + carbone |
+| **Comparaison** | Avec le capteur réel à t+15 min | Aucune — c'est un plan futur |
+| **Si échec** | `thermal_anomaly` → réveille Agent 3 | Recalcule au prochain cycle |
+| **Écrit dans** | `sensor_readings` (lecture) | `mpc_schedules` (96 lignes) |
 
-`config_json` structure (Pydantic models in `schema_models.py`):
+**En clair :** le modèle RC prédit toutes les 15 min pour **vérifier sa propre
+santé** ; le MPC prédit 24 h pour **planifier l'avenir**. Ce sont deux calculs
+indépendants qui tournent au même cycle.
 
-```json
-{
-  "envelope": {
-    "north_wall_m2": 15.5, "south_wall_m2": 0.0,
-    "east_wall_m2": 10.2,  "west_wall_m2": 0.0,
-    "external_walls": ["north", "east"],
-    "internal_walls": ["south", "west"]
-  },
-  "thermal": {
-    "wall_r_value": 1.8,        // R-value (m²·K/W)
-    "window_u_value": 5.8,      // U-value (W/m²·K)
-    "thermal_mass": "heavy",
-    "estimated_C_zone": 145000.0 // heat capacity (J/K)
-  },
-  "hvac": {
-    "type": "split_unit", "capacity_kw": 3.5,
-    "cop_cooling": 2.8, "setpoint_occupied_c": 22.0
-  },
-  "adjacency": {
-    "north": "external", "south": "room-102",
-    "east": "external", "west": "room-103"
-  }
-}
-```
+**Lit :** `rooms`, `floors`, `buildings`, `room_adjacencies`, `rc_model_params`,
+`sensor_readings`.
+**Écrit :** `rc_model_params`, `mpc_schedules`, `anomalies`.
 
-- **envelope** → wall areas per direction + external vs. adjacent (for solar gain
-  `Q_solar` and inter-zone transfer).
-- **thermal** → the R and C values Agent 2's model needs.
-- **hvac** → unit specs (capacity, efficiency, occupied setpoint).
-- **adjacency** → what's on the other side of each wall (relevant for later
-  multi-zone 2R2C models).
+> ⚠️ **Lookahead 2 h / 3 stratégies MP + Pareto (`select_by_pareto`) — NON
+> VALIDÉ** : le CPU (solve) est aujourd'hui un solve simple.
 
-`BuildingAgent.get_thermal_parameters("room-101")` returns `R`, `C`,
-`wall_r_value`, `estimated_C_zone` for a room — a convenience accessor. Agent 2
-currently does *not* call this; it reads the same data straight from the `rooms`
-table by SQL (see below).
+**Constantes :** fast loop 15 min · calibration 24 h · DT 900 s · seuil `max(3·
+RMSE, 1.0 °C)` sur 4 échantillons · fermeture 0,5 × seuil · confort [20, 26] /
+[16, 30 °C] · tarif 4,67 (unité normale) · λ carbone 8.0 · fenêtre de
+calibration 21 j (min 288 échantillons) · drift 0,5·RMSE sur 7 j.
 
 ---
 
-## Agent 2 — Thermal (the physics core)
+### Agent 3 — Diagnostic (`src/agents/diagnostic_agent/`)
 
-Deterministic, **no LLM**. For each instrumented room:
+**Rôle :** répondre au POURQUOI d'une anomalie et proposer UNE action.
+Événementiel — déclenché uniquement par une `thermal_anomaly` non diagnostiquée
+(`diagnosed = false`).
 
-1. Builds a lumped **RC thermal model** from the geometry,
-2. **Calibrates** R/C against real sensor history,
-3. solves a 24h **MPC** for the cost/carbon-optimal setpoint schedule,
-4. **flags** a `thermal_anomaly` when measured temperature disagrees with the
-   model's prediction.
+**Aujourd'hui (fonctionne) — graphe LangGraph (`graph.py`) :**
+1. `build_input_contract` (`input_contract.py`) : type (`overheating`/`overcooling`/`oscillation`/
+   `no_response`), residual, threshold, durée, état HVAC.
+2. Graphe LangGraph à 6 nœuds :
+   ```
+   build_contract → llm_reason → tool_executor (loop, ≤ 8 appels)
+     → validate_output → (JSON valide → END | JSON invalide → json_repair → llm_reason)
+     → budget épuisé / LLM déraillé → fallback_node
+   ```
+   - `llm_reason` (Groq `llama-3.3-70b-versatile`, overridable via `GROQ_DIAGNOSTIC_MODEL`) raisonne et choisit entre 7 outils ou
+     un verdict final (JSON strict `{"tool": ...}` vs `{"cause": ...}`).
+   - `tool_executor` exécute l'outil, décrémente `budget_remaining`, enrichit
+     `evidence_gathered` (7 outils en lecture seule) :
+     | Outil | Lit |
+     |---|---|
+     | `get_sensor_history` | `sensor_readings` |
+     | `get_calendar` | occupation **déduite** de `sensor_readings.q_occ_w` (pas de table `occupancy_schedules`) |
+     | `get_mpc_trajectory` | `mpc_schedules` (dernier solve) |
+     | `get_hvac_logs` | état dérivé de `sensor_readings.q_hvac_w` (pas de table `hvac_events`) |
+     | `get_similar_anomalies` | `anomalies` + `diagnoses` |
+     | `get_building_context` | `rooms` + `buildings` (+ modèle RC actif) |
+     | `check_neighboring_zones` | `room_adjacencies` + `sensor_readings` |
+     Règles : `get_sensor_history` + `get_calendar` obligatoires avant conclusion.
+   - `validate_output` : validation **JSON strict via Pydantic `DiagnosisContract`**
+     (`contract.py`) + `json_repair` (2 tentatives) +
+     **fallback déterministe** (`inspection_required` si cause indéterminée).
+   - Le state (TypedDict) est checkpointé après chaque nœud (`node_trace`,
+     `tool_calls_made`, `budget_remaining`, …) → traçabilité et reprise en cas de crash.
+   - **Checkpoint persistant** (`checkpointer.py`) : SqliteSaver dans
+     `data/agent3_checkpoints.sqlite` (overridable via `DIAGNOSTIC_CHECKPOINT_DB`).
+     En cas de crash, `diagnose_anomaly` reprend automatiquement le thread
+     (`anomaly-<id>`) au nœud interrompu — les nœuds déjà terminés ne sont pas rejoués
+     (`run_investigation` vérifie `get_state().next`).
+3. `supervisor.py` (gate, appelée par Agent 4 via orchestrate, **hors LangGraph**) :
+   `delta_c` hors bornes / action à risque / `inspection_required` →
+   `human_alert` ; même cause + pièce < 30 j → `log_only` ; sinon `autonomous`.
+4. Persiste `diagnoses` + `audit_log` (trace complète : `node_trace`, `timestamps`)
+   et `alerts` si `human_alert`.
 
-It reads Agent 1's tables (`rooms`, `floors`, `buildings`,
-`room_adjacencies`) **over raw SQL** — it never imports Agent 1's code, and
-owns/converts `rc_model_params`, `mpc_schedules`, `anomalies`,
-`sensor_readings`. Nutrition: it fetches rooms direct from its own `db.py`
-`fetch_*` helpers, not through `BuildingAgent`.
-
-### The RC model, simply
-
-Think of it as an electrical circuit analog:
-
-```
-Outside (38°C) ──[ R ]── Room [ C ] ──> 24°C
-```
-
-- **R** (resistance) = how well insulated the wall is. Thin wall → low R →
-  heat enters fast; insulated wall → high R → slow.
-- **C** (capacitance) = thermal mass. A coffee cup heats fast; a pool heats
-  slowly.
-
-Given outside temp, R and C, the model predicts room temperature evolution
-minute by minute.
-
-### Calibration
-
-If the model predicts 25°C but the sensor reads 26°C, Agent 2 nudges R and C
-until prediction ≈ measurement, over `sensor_readings` history
-(`calibrate.run_calibration_sweep`, `rc.fit_rc`).
-
-### MPC
-
-Already able to predict, MPC answers "what setpoints over the next 24h?" using
-weather forecast, electricity price, carbon intensity, and comfort constraints
-(`mpc.solve` via cvxpy). The `carbon` signal lets it cool during low-carbon
-hours (e.g. solar-heavy 13h) rather than gas-heavy 19h when flexible.
-
-### Anomaly detection
-
-If predicted and measured diverge past a threshold, Agent 2 raises a
-`thermal_anomaly` — the *only* trigger that wakes Agent 3
-(`anomaly.run_anomaly_pipeline`).
-
-### Verified end-to-end (real Supabase)
-
-Calibration, MPC solve, and anomaly detection all confirmed working on real
-rooms.
-
-**Current limits:** no real sensors deployed yet, so `sensor_readings` is
-synthetic/demo; most real rooms still lack wall-geometry data from Agent 1's
-floor-plan extraction, so their models aren't yet physically meaningful.
+**Écrit :** `diagnoses`, `alerts`, `audit_log`.
 
 ---
 
-## Agent 3 — Diagnostic
+### Agent 4 — Supervisor (`src/agents/supervisor/`)
 
-Event-driven — only runs when Agent 2 raises `thermal_anomaly`.
+**Rôle :** orchestrateur + seule décision finale. **Gate déterministe = argument
+légal : "le LLM ne décide jamais seul."**
 
-- Gathers evidence via **7 read-only tools** (`tools.py`): sensor history,
-  calibrate, MPC trajectory, HVAC logs, similar past anomalies, building
-  context, neighboring zones.
-- Produces a **cause + proposed action**.
-- Hands the decision to the deterministic Supervisor gate (`supervisor.py`) —
-  the LLM's opinion alone never decides whether an action is safe to run.
-- Uses **Groq** (its own `DIAGNOSTIC_GROQ_API_KEY`), not the Bedrock/Claude the
-  original brief specified. Owns `diagnoses` / `alerts` / `audit_log`; never
-  imports Agent 1 or 2's code even to read their tables.
+**Cycle (`orchestrate.py · run_full_cycle`) :**
+1. Calibration (si due, 24 h) · 2) Fast loop Agent 2 (chaque pièce · 15 min) ·
+3. Diagnostic Agent 3 (anomalies `diagnosed=false`) · 4. Gate → `autonomous /
+human_alert / log_only` · 5. Dispatch si `human_alert` (`channels.py` :
+`LogChannel` → `logs/alerts.jsonl`, + Webhook).
+Scheduler : `scheduler.py` (`run_n_cycles` / `run_forever`).
 
-The LLM output is validated against a strict JSON contract (`contract.py`); if
-the LLM misbehaves, a deterministic fallback kicks in.
-
-Verified live end-to-end: a real anomaly raised by Agent 2's own detection was
-diagnosed through the real Groq API and correctly persisted and routed.
+**Écrit :** `alerts` (via dispatch), marquage `anomalies.diagnosed = true`.
 
 ---
 
-## Agent 4 — Supervisor / Orchestration
+## Base de données (Supabase Postgres) — 13 tables
 
-The runtime that wires the other three together (`orchestrate.py`):
+| Table | Colonnes |
+|---|---|
+| `organisations` | `org_id` PK, `name`, `email`, `country_code`, `plan`, `created_at` |
+| `buildings` | `building_id` PK, `name`, `address`, `latitude`, `longitude`, `total_floors`, `country_code`, `org_id`, `created_at` |
+| `floors` | `floor_id` PK, `building_id`, `level`, `name`, `floor_plan_url`, `created_at` |
+| `rooms` | `room_id` PK, `floor_id`, `building_id`, `room_label`, `room_type`, `area_m2`, `volume_m3`, `primary_orientation`, `r_wall`, `c_zone`, `sensor_id`, `config_json` (JSONB), `created_at` |
+| `air_conditioners` | `ac_id` PK, `room_id`, `manufacturer`, `model`, `serial_number`, `cooling_capacity_kw`, `heating_capacity_kw`, `power_kw`, `installation_date`, `status`, `pos_x`, `pos_y`, `created_at` |
+| `room_adjacencies` | PK `(room_id, adjacent_room_id)`, `direction`, `wall_type` |
+| `sensor_readings` | `id` PK, `room_id`, `ts` (= 15 min), `temp_measured_c`, `temp_ext_c`, `q_solar_w`, `q_occ_w`, `q_hvac_w` · `UNIQUE(room_id, ts)` |
+| `rc_model_params` | `id` PK, `room_id`, `version`, `r_lumped`, `c_lumped`, `rmse_validation`, `anomaly_threshold_c`, `data_window_start`, `data_window_end`, `is_active`, `created_at` · `UNIQUE(room_id, version)` |
+| `mpc_schedules` | `id` PK, `room_id`, `solved_at`, `slot_ts`, `setpoint_c`, `predicted_temp_c`, `predicted_kwh`, `predicted_gco2`, `model_version` · `UNIQUE(room_id, solved_at, slot_ts)` |
+| `anomalies` | `id` PK, `room_id`, `anomaly_type` (`thermal_anomaly` / `sensor_fault` / `comfort_violation`), `opened_at`, `closed_at`, `residual_c`, `residual_trace` JSONB, `threshold_c`, `model_version`, `diagnosed` |
+| `diagnoses` | `id` PK, `anomaly_id`, `room_id`, `cause`, `cause_confidence`, `evidence` JSONB, `energy_wasted_kwh`, `energy_wasted_basis`, `proposed_action` JSONB, `recurrence` JSONB, `message`, `supervisor_decision`, `created_at` |
+| `alerts` | `id` PK, `diagnosis_id`, `room_id`, `channel`, `recipient`, `payload` JSONB, `sent_at` |
+| `audit_log` | `id` PK, `anomaly_id`, `room_id`, `invoked_at`, `tool_calls` JSONB, `model_output` JSONB, `supervisor_decision` JSONB, `diagnosis_id`, `created_at` |
 
-- **polls** for undiagnosed anomalies → invokes Agent 3 (`run_diagnosis_cycle`);
-- **runs** Agent 2's fast loop, and (only when due) its calibration sweep
-  (`run_fast_loop_cycle`, `run_cooling_calibration_cycle_if_due`);
-- **dispatches a real alert** (local log file, or webhook if configured) when
-  the decision layer routes a diagnosis to `human_alert` (`channels.py`).
-
-Unlike Agents 2/3, this package **is** allowed to import the others — it's the
-coordinator sitting above them. Decision categories: **autonomous fix** /
-**human alert** / **log only**.
-
-Verified live: a single `run_full_cycle()` ran all three agents against real
-Supabase in sequence — fast loop, a correctly-skipped calibration (not due
-yet), and a live Groq diagnosis — persisted correctly throughout.
+> Les FKs HTTP concernent : `buildings.org_id → organisations`,
+> `floors.building_id → buildings`, `rooms.floor_id → floors`,
+> `air_conditioners.room_id → rooms`, `room_adjacencies.room_id → rooms`.
 
 ---
 
-## Data flow (one full cycle)
+## Index appliqués sur la base (juin 2026)
 
+```sql
+CREATE INDEX idx_mpc_room_solved    ON mpc_schedules(room_id, solved_at DESC);
+CREATE INDEX idx_anom_undiagnosed   ON anomalies(anomaly_type, opened_at DESC) WHERE diagnosed = false;
+CREATE INDEX idx_anom_open          ON anomalies(room_id, anomaly_type, opened_at DESC) WHERE closed_at IS NULL;
+CREATE INDEX idx_anom_room_time     ON anomalies(room_id, opened_at DESC);
+CREATE INDEX idx_diag_cooldown      ON diagnoses(room_id, cause, created_at DESC);
+CREATE INDEX idx_rooms_floor        ON rooms(floor_id);
+CREATE INDEX idx_floors_building    ON floors(building_id);
 ```
-Floor plan
-   ▼
-Agent 1 (Building) ──► R, C, geometry, orientation ──► rooms table
-   ▼
-Agent 2 (Thermal)  RC predict + calibrate + MPC (24h)
-   │                     maintenance loop only when due
-   ▼
-predicted vs measured
-   ├ normal ─────────────► continue
-   └ mismatch ─► thermal_anomaly
-                     ▼
-              Agent 3 (Diagnostic)  evidence → cause + action
-                     ▼
-              Agent 4 (Supervisor)  autonomous / human_alert / log_only
-```
+
+Déjà couverts (pas d'index supplémentaires) : `sensor_readings(room_id, ts)` via
+`UNIQUE(room_id, ts)` ; `room_adjacencies(room_id)` via PK composite ;
+`rc_model_params` (table petite).
+
+---
+
+## Stack technique
+
+| Couche | Technologie | Rôle |
+|---|---|---|
+| Backend | Python ≥ 3.10 | Agents |
+| ORM/DB | SQLModel / SQLAlchemy + psycopg2 | Postgres Supabase |
+| Physique | numpy / scipy | RC, `least_squares` |
+| Optmique | cvxpy + ECOS | MPC 24 h |
+| Solaire | pvlib | position soleil, irradiance POA |
+| Météo | Open-Meteo | prévision temp/rayonnement (cache 1 h) |
+| Carbone | ElectricityMaps | intensité carbone (fallback offline) |
+| Vision | Groq (`qwen/qwen3.6-27b`) | Agent 1 |
+| Diagnostic | Groq + **LangGraph** | Agent 3 |
+| Orchestration | Python pur (LangGraph : *prévu* Agent 1 — non validé) | Agent 4 |
+| API | FastAPI | points d'entrée (`building_agent/api.py`) |
+| Frontend | React 19 · Vite 8 · TypeScript · Tailwind 4 · Recharts | dashboard, heatmap… |
+| Tests | pytest | par agent |
+| Hébergement | Supabase Postgres | production |
 
 ---
 
@@ -314,52 +258,95 @@ predicted vs measured
 
 ```bash
 python -m venv .venv
-.venv/Scripts/activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
+.venv\Scripts\activate            # Windows
 pip install -e ".[dev]"
-cp .env.example .env          # fill ANTHROPIC_API_KEY / DIAGNOSTIC_GROQ_API_KEY
+cp .env.example .env              # remplir (voir `.env`)
 pytest
 ```
 
-`DATABASE_URL` should point at the real Supabase Postgres (see `.env.example`).
-The schema (DDL) is now managed directly in Supabase, not in this repo; `dev/`
-only holds seed/demo scripts that need an existing schema.
+`.env` (racine, gitignored) : `DATABASE_URL`, `GROQ_API_KEY`,
+`DIAGNOSTIC_GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`,
+`SUPABASE_SERVICE_KEY` (optionnel : `ELECTRICITYMAPS_API_KEY`,
+`SUPERVISOR_ALERT_WEBHOOK_URL`).
+
+API : `uvicorn src.agents.building_agent.api:app --reload`.
+Supervisor (boucle infinie) : lancer `run_n_cycles`/`run_forever` depuis
+`supervisor/scheduler.py` (pas de CLI `python -m` encore).
+
+> ⚠️ `dev/seed.py` n'est pas compatible avec le schéma Supabase actuel
+> (contraintes NOT NULL) — à adapter avant usage en dev.
 
 ---
 
-## Scope / deviations from the original brief
+## Phase actuelle (Phase 0)
 
-- **LLM provider:** brief specified AWS Bedrock (Claude) for the Supervisor and
-  Diagnostic agents. The real Diagnostic build uses **Groq**. The original
-  Anthropic stub in the legacy `src/dynamiq/` tree still exists but was
-  superseded, not deleted.
-- **Storage:** no persistent database for the Supervisor layer — it keeps an
-  in-memory `audit_log`; RDS persistence is a deployment concern, out of scope.
-- **Data:** sensor history is synthetic (Phase 0) until real ESP32 sensors are
-  installed.
+**Fonctionne (vérifié de bout en bout sur vraie Supabase)** :
 
-## Legacy scaffolding (`src/dynamiq/`, NOT used)
+| Brique | Statut |
+|---|---|
+| Agent 1 : plan → pièces + R/C + orientation + enveloppe | ✅ |
+| Agent 2 : RC model · calibration · MPC 24 h · détection anomalie | ✅ |
+| Agent 3 : anomalie réelle diagnostiquée via Groq, contrat validé, routée | ✅ |
+| Agent 4 : `run_full_cycle()` (fast loop + calibration + diagnostic + dispatch) | ✅ |
+| Frontend : dashboard, heatmap, anomalies, pages Thermal & MPC | ✅ (mock) |
 
-Deprecated prototype of the architecture, kept for reference. **Every module
-raises `NotImplementedError`** and is not wired into any of the four live
-agents:
+**Limites / à venir** : capteurs ESP32 (Phase 1) · géométrie murs en cours (Phase
+1) · frontend branché à l'API (Phase 1) · déploiement AWS/hébergé (Phase 1) ·
+2R2C multi-zone (Phase 2) · actions autonomes (Phase 2) · `run_simulation.py`
+Évalué Phase 2.
+
+---
+
+## Repo layout
 
 ```
-src/dynamiq/
-  data/{weather,carbon,simulator}.py
-  models/{rc_model,mpc}.py
-  agents/{base,building_agent,thermal_agent,diagnostic_agent,tools,supervisor}.py
+src/agents/
+├── building_agent/      Agent 1 — plan → structure
+│   ├── vision_processor.py  Groq Vision (PDF/IMG)
+│   ├── geometry_processor.py orientation + numérotation
+│   ├── schema_models.py     modèles SQLModel + config_json
+│   ├── db_manager.py        CRUD
+│   └── api.py               FastAPI (POST /buildings, /floors/{level}/upload)
+├── thermal_agent/        Agent 2 — physique (no LLM)
+│   ├── handler.py  db.py  zone_model.py  rc.py  mpc.py
+│   ├── calibrate.py anomaly.py weather.py carbon.py constants.py
+├── diagnostic_agent/    Agent 3 — POURQUOI (Groq, graphe LangGraph)
+│   ├── diagnose.py  input_contract.py  graph.py (LangGraph : 6 nœuds)
+│   ├── tools.py (TOOL_REGISTRY, 7 outils RO)  contract.py (Pydantic DiagnosisContract)
+│   ├── supervisor.py (gate déterministe, appelée par Agent 4)  db.py  constants.py
+│   └── checkpointer.py (checkpoint persistant sqlite, crash-reprise)
+└── supervisor/          Agent 4 — orchestration
+    ├── orchestrate.py  scheduler.py  channels.py  db.py  constants.py
+
+frontend/               React 19 + Vite + TS + Tailwind (mock)
+dev/                    seed.py · seed_sensor_readings.py · webapp.py
+tests/                  pytest par agent
+scripts/run_simulation.py   stub (Phase 2)
+scripts/demo_agent3.py      démo live Agent 3 (streaming nœuds + gate + persistance)
+scripts/verify_agent3.py    vérif e2e Agent 3 (reset + run + persistance)
 ```
 
-If you're adding features or reading the code, ignore this package entirely —
+> `src/dynamiq/` a été **supprimé** (ancien scaffolding mort).
+
+---
+
+## Argumentaire clé (pour le jury)
+
+« Notre architecture distingue le **raisonnement incertain** (LLM) du **contrôle
+critique** (calcul déterministe). »
+
+1. L'Agent 3 explore, l'Agent 4 décide avec des **règles fixes** — gate de 15
+   lignes, triviable à auditer. Le LLM ne décide jamais seul.
+2. Le cerveau physique reste auditable : des solutions mathématiques (cvxpy +
+   argmin), pas des intuitions.
+3. LangGraph (en cours) sera utilisé avec parcimonie — pour les boucles où le
+   LLM raisonne et choisit (Agents 1 & 3) — jamais pour du calcul numérique pur.
+
+---
 
 ## TL;DR
-
-- **Agent 1** describes the building (geometry + envelope).
-- **Agent 2** is the physics brain: RC predicts temperature, calibration keeps
-  it accurate, MPC plans the optimal 24h cooling, and it flags anomalies.
-- **Agent 3** figures out *why* an anomaly happened (Groq, 7 tools).
-- **Agent 4** coordinates everything and makes the final call.
-
-Master Agent 2 (RC + Calibration + MPC) and you understand ~80% of DynamIQ's
-intelligence.
+- **Agent 1** décrit le bâtiment (géométrie + enveloppe).
+- **Agent 2** prédit, calibre, optimise 24 h et flague les anomalies (physique
+  pure, auditable).
+- **Agent 3** trouve *pourquoi* (Groq, 7 outils).
+- **Agent 4** coordonne tout et rend la décision finale (gate déterministe).

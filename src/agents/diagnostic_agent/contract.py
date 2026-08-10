@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
 from . import constants
 
 
@@ -13,71 +15,107 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
 
 
-def _require(condition: bool, message: str, errors: list[str]) -> None:
-    if not condition:
-        errors.append(message)
+class ProposedAction(BaseModel):
+    """One corrective action. An out-of-enum or missing ``type`` is coerced to
+    ``inspection_required`` instead of failing -- the spec's failure-mode table
+    rejects the ACTION, not the whole diagnosis. Extra keys (``delta_c``,
+    ``target_setpoint_c``, ...) are preserved."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str | None = None
+
+    @model_validator(mode="after")
+    def _coerce_type(self) -> ProposedAction:
+        if self.type not in constants.VALID_ACTION_TYPES:
+            self.type = "inspection_required"
+        return self
+
+
+_DEFAULT_RECURRENCE = {"seen_before": False, "last_occurrence": None, "long_term_recommendation": None}
+
+
+class DiagnosisContract(BaseModel):
+    """Pydantic contract for the LLM's final verdict (replaces the manual
+    per-field validation). Unknown top-level keys are ignored."""
+
+    cause: str
+    cause_confidence: str
+    evidence: list[str]
+    energy_wasted_kwh: float
+    energy_wasted_basis: str = "mpc_counterfactual"
+    proposed_action: ProposedAction
+    recurrence: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_RECURRENCE))
+    message: str
+
+    @field_validator("cause", "message", mode="before")
+    @classmethod
+    def _non_empty_str(cls, value: Any) -> Any:
+        if not isinstance(value, str) or len(value) == 0:
+            raise ValueError("must be a non-empty string")
+        return value
+
+    @field_validator("cause_confidence", mode="before")
+    @classmethod
+    def _valid_confidence(cls, value: Any) -> Any:
+        if not isinstance(value, str) or value not in constants.VALID_CAUSE_CONFIDENCE:
+            raise ValueError(f"must be one of {constants.VALID_CAUSE_CONFIDENCE}, got {value!r}")
+        return value
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _list_of_strings(cls, value: Any) -> Any:
+        if not isinstance(value, list) or not all(isinstance(e, str) for e in value):
+            raise ValueError("must be a list of strings")
+        return value
+
+    @field_validator("energy_wasted_kwh", mode="before")
+    @classmethod
+    def _numeric(cls, value: Any) -> Any:
+        if not isinstance(value, (int, float)):
+            raise ValueError("must be numeric")
+        return value
+
+    @field_validator("recurrence", mode="before")
+    @classmethod
+    def _recurrence_default(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, dict):
+            return dict(_DEFAULT_RECURRENCE)
+        return value
+
+    @model_validator(mode="after")
+    def _undetermined_forces_inspection(self) -> DiagnosisContract:
+        if self.cause_confidence == "undetermined" and self.proposed_action.type != "inspection_required":
+            self.proposed_action.type = "inspection_required"
+        return self
+
+    def as_output(self, anomaly_id: int, room_id: str) -> dict[str, Any]:
+        return {
+            "anomaly_id": anomaly_id,
+            "room_id": room_id,
+            "cause": self.cause,
+            "cause_confidence": self.cause_confidence,
+            "evidence": self.evidence,
+            "energy_wasted_kwh": float(self.energy_wasted_kwh),
+            "energy_wasted_basis": self.energy_wasted_basis,
+            "proposed_action": self.proposed_action.model_dump(),
+            "recurrence": self.recurrence,
+            "message": self.message,
+        }
 
 
 def validate_output(raw: Any, anomaly_id: int, room_id: str) -> ValidationResult:
-    errors: list[str] = []
-
     if not isinstance(raw, dict):
         return ValidationResult(False, None, ["top-level output is not a JSON object"])
-
-    cause = raw.get("cause")
-    _require(isinstance(cause, str) and len(cause) > 0, "cause must be a non-empty string", errors)
-
-    cause_confidence = raw.get("cause_confidence")
-    _require(
-        cause_confidence in constants.VALID_CAUSE_CONFIDENCE,
-        f"cause_confidence must be one of {constants.VALID_CAUSE_CONFIDENCE}, got {cause_confidence!r}",
-        errors,
-    )
-
-    evidence = raw.get("evidence")
-    _require(isinstance(evidence, list) and all(isinstance(e, str) for e in evidence), "evidence must be a list of strings", errors)
-
-    energy_wasted_kwh = raw.get("energy_wasted_kwh")
-    _require(isinstance(energy_wasted_kwh, (int, float)), "energy_wasted_kwh must be numeric", errors)
-
-    proposed_action = raw.get("proposed_action")
-    _require(isinstance(proposed_action, dict), "proposed_action must be an object", errors)
-
-    action_type = proposed_action.get("type") if isinstance(proposed_action, dict) else None
-    action_type_valid = action_type in constants.VALID_ACTION_TYPES
-    # An out-of-enum action type is NOT a validation failure -- the spec's own
-    # failure-mode table says to reject the ACTION and coerce to
-    # inspection_required, not throw away an otherwise-sound diagnosis.
-
-    message = raw.get("message")
-    _require(isinstance(message, str) and len(message) > 0, "message must be a non-empty string", errors)
-
-    if errors:
+    try:
+        model = DiagnosisContract.model_validate(raw)
+    except ValidationError as exc:
+        errors: list[str] = []
+        for error in exc.errors():
+            loc = ".".join(str(part) for part in error.get("loc", ()))
+            errors.append(f"{loc}: {error['msg']}" if loc else error["msg"])
         return ValidationResult(False, None, errors)
-
-    corrected_action = dict(proposed_action)
-    if cause_confidence == "undetermined" and corrected_action.get("type") != "inspection_required":
-        corrected_action["type"] = "inspection_required"
-    if not action_type_valid:
-        corrected_action["type"] = "inspection_required"
-
-    recurrence = raw.get("recurrence")
-    if not isinstance(recurrence, dict):
-        recurrence = {"seen_before": False, "last_occurrence": None, "long_term_recommendation": None}
-
-    output = {
-        "anomaly_id": anomaly_id,
-        "room_id": room_id,
-        "cause": cause,
-        "cause_confidence": cause_confidence,
-        "evidence": evidence,
-        "energy_wasted_kwh": float(energy_wasted_kwh),
-        "energy_wasted_basis": raw.get("energy_wasted_basis", "mpc_counterfactual"),
-        "proposed_action": corrected_action,
-        "recurrence": recurrence,
-        "message": message,
-    }
-    return ValidationResult(True, output, [])
+    return ValidationResult(True, model.as_output(anomaly_id, room_id), [])
 
 
 def templated_fallback(anomaly_id: int, room_id: str, raw_anomaly: dict[str, Any], reason: str) -> dict[str, Any]:
