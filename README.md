@@ -75,6 +75,60 @@ thermiques structurées et persistées.
 > ```
 > Budget cible : max 3 itérations, 2 appels Groq Vision / itération.
 
+  thermal_agent/              Agent 2 — physics brain (deterministic, no LLM)
+    __init__.py
+    handler.py                Fast-loop entry: fetch → build model → MPC → persist → anomalies
+    db.py                     Raw-SQL access to buildings/floors/rooms/adjacencies/readings
+    zone_model.py             Lumped RC zone model (envelope → R/C/UA, sanity gate)
+    rc.py                     1st-order RC physics: fit_rc / simulate / one-step-ahead
+    mpc.py                    cvxpy 24h setpoint optimizer (energy + carbon)
+    calibrate.py              RC calibration sweep against sensor history
+    anomaly.py                anomaly pipeline: sensor validity, comfort, thermal, drift
+    weather.py                Open-Meteo (+pvlib) temp/GHI forecast; solar_gain_w()
+    carbon.py                 ElectricityMaps grid carbon-intensity forecast
+    constants.py              thermal/energy constants, tariffs, thresholds
+    api.py                    Read-only FastAPI app for the frontend's Thermal, MPC,
+                               Anomalies, Diagnoses, Alerts and Reports pages (own port, not
+                               the fast loop)
+
+  diagnostic_agent/           Agent 3 — WHY (Groq LLM, graphe LangGraph)
+    __init__.py
+    graph.py                  LangGraph: build_contract → llm_reason → tool_executor → validate
+    diagnose.py               diagnose_anomaly(): runs the graph, gate + persistence
+    input_contract.py         build_input_contract() / classify_anomaly_type()
+    checkpointer.py           Checkpoint persistant sqlite (crash-reprise)
+    tools.py                  TOOL_REGISTRY: 7 read-only tools + schemas
+    contract.py               Pydantic DiagnosisContract + fallback déterministe
+    supervisor.py             Gate déterministe: autonomous/human_alert/log_only
+    db.py                     Raw-SQL reads (anomalies, readings, schedules) + writes diagnoses
+    constants.py              Groq config, tool budget, defaults
+
+  supervisor/                 Agent 4 — orchestration (the coordinator)
+    __init__.py
+    orchestrate.py            run_full_cycle(): fast loop + calibration-if-due + diagnosis
+    scheduler.py              run_forever()/run_n_cycles() timed driver
+    channels.py               AlertChannel: LogChannel / WebhookChannel / dispatch
+    db.py                     poll undiagnosed anomalies, last-calibration time
+    constants.py              loop intervals, alert log path, webhook timeout
+```
+
+Supporting files:
+
+```
+dev/                            throwaway test data (seed scripts + local Postgres compose)
+scripts/run_simulation.py       end-to-end demo run of all 4 agents against real Supabase,
+                                 traced to scripts/simulation_runs/*.json
+scripts/seed_djezzy_building.py one-time seed of the Djezzy HQ Annex demo building (18 rooms,
+                                 3 floors, 3 instrumented + really calibrated) into real Supabase
+scripts/demo_agent3.py          démo live Agent 3 (streaming nœuds + gate + persistance)
+scripts/verify_agent3.py        vérif e2e Agent 3 (reset + run + persistance)
+tests/                          pytest suites, one package per agent
+pyproject.toml / requirements.txt / .env.example
+```
+
+Every module in the four `src/agents/` packages is a real implementation with
+tests; the legacy `src/dynamiq/` scaffolding has been removed.
+
 ---
 
 ### Agent 2 — Thermal (`src/agents/thermal_agent/`)
