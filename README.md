@@ -353,19 +353,37 @@ src/
     │   ├── tools.py
     │   ├── contract.py
     │   ├── supervisor.py
-    │   └── checkpointer.py
+    │   ├── checkpointer.py
+    │   └── api.py            # :8002 — health, anomaly queries, diagnose
     │
     └── supervisor/
         ├── orchestrate.py
         ├── scheduler.py
         ├── channels.py
-        └── db.py
+        ├── db.py
+        └── api.py            # :8003 — health, undiagnosed anomalies, run-cycle
 
 frontend/
 tests/
 scripts/
 dev/
 ```
+
+## Agent HTTP APIs
+
+Each agent exposes its own FastAPI process. Run from the repo root with
+`uvicorn <app> --app-dir src --port <port>`:
+
+| Agent | Port | App                                    | Key endpoints                                                     |
+| ----- | ---- | -------------------------------------- | ----------------------------------------------------------------- |
+| 1     | 8010 | `agents.building_agent.api:app`        | building catalog + vision pipeline metadata                       |
+| 2     | 8001 | `agents.thermal_agent.api:app`         | rooms, models, MPC schedules, reports, anomalies                  |
+| 3     | 8002 | `agents.diagnostic_agent.api:app`      | `GET /anomalies/{id}`, `POST /anomalies/{id}/diagnose`            |
+| 4     | 8003 | `agents.supervisor.api:app`            | `GET /buildings/{id}/undiagnosed-anomalies`, `POST /buildings/{id}/run-cycle` |
+
+The frontend (`frontend/.env.example`) points at Agent 2 (`:8001`) and Agent 1
+(`:8010`); Agents 3 and 4 are called directly for live diagnosis and on-demand
+cycle runs.
 
 ---
 

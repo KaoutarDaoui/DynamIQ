@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
+from functools import lru_cache
 
-from sqlalchemy import Engine, func
+from dotenv import load_dotenv
+from sqlalchemy import Engine, func, create_engine
 from sqlalchemy.orm import registry as orm_registry
 from sqlmodel import Field, Session, SQLModel, select
+
+load_dotenv()
+
+
+@lru_cache(maxsize=1)
+def get_engine() -> Engine:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL must be set (see .env.example)")
+    return create_engine(database_url)
 
 
 class SupervisorBase(SQLModel, registry=orm_registry()):
