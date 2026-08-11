@@ -46,6 +46,21 @@ def _ensure_run_log_table() -> None:
     ensure_building_agent_runs_table(engine)
 
 
+class HealthResponse(BaseModel):
+    status: str
+    db_configured: bool
+
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    try:
+        with engine.connect():
+            db_ok = True
+    except Exception:
+        db_ok = False
+    return HealthResponse(status="ok", db_configured=db_ok)
+
+
 class RoomOut(BaseModel):
     room_id: str
     room_label: str

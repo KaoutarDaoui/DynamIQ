@@ -23,6 +23,21 @@ app.add_middleware(
 )
 
 
+class HealthResponse(BaseModel):
+    status: str
+    db_configured: bool
+
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    try:
+        with get_engine().connect():
+            db_ok = True
+    except Exception:
+        db_ok = False
+    return HealthResponse(status="ok", db_configured=db_ok)
+
+
 class ThermalModelRoom(BaseModel):
     room_id: str
     room_label: str
