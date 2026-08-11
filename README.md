@@ -376,10 +376,10 @@ Each agent exposes its own FastAPI process. Run from the repo root with
 
 | Agent | Port | App                                    | Key endpoints                                                     |
 | ----- | ---- | -------------------------------------- | ----------------------------------------------------------------- |
-| 1     | 8010 | `agents.building_agent.api:app`        | building catalog + vision pipeline metadata                       |
-| 2     | 8001 | `agents.thermal_agent.api:app`         | rooms, models, MPC schedules, reports, anomalies                  |
-| 3     | 8002 | `agents.diagnostic_agent.api:app`      | `GET /anomalies/{id}`, `POST /anomalies/{id}/diagnose`            |
-| 4     | 8003 | `agents.supervisor.api:app`            | `GET /buildings/{id}/undiagnosed-anomalies`, `POST /buildings/{id}/run-cycle` |
+| 1     | 8010 | `agents.building_agent.api:app`        | `GET /health`, building catalog + vision pipeline metadata        |
+| 2     | 8001 | `agents.thermal_agent.api:app`         | `GET /health`, rooms, models, MPC schedules, reports, anomalies   |
+| 3     | 8002 | `agents.diagnostic_agent.api:app`      | `GET /health`, `GET /anomalies/{id}`, `POST /anomalies/{id}/diagnose` |
+| 4     | 8003 | `agents.supervisor.api:app`            | `GET /health`, `GET /buildings/{id}/undiagnosed-anomalies`, `POST /buildings/{id}/run-cycle` |
 
 The frontend (`frontend/.env.example`) points at Agent 2 (`:8001`) and Agent 1
 (`:8010`); Agents 3 and 4 are called directly for live diagnosis and on-demand
