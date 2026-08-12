@@ -190,9 +190,134 @@ The distinction is important:
 
 ## Agent 3 — Diagnostic
 
-**Role:** Determine **why** a thermal anomaly occurred and propose one action.
+**Role:** Determine **why** a thermal anomaly occurred. Agent 3 is a **hybrid**:
+the LLM classifies *what* the problem is, and deterministic Python computes
+every number that can be derived from real data.
 
 Agent 3 is event-driven and is triggered when an undiagnosed thermal anomaly is detected.
+
+### Hybrid division of labour
+
+```text
+                       Agent 3
+                          │
+                   ┌──────┴──────┐
+                   ↓             ↓
+                  LLM           Python
+                   │              │
+                   ↓              ↓
+                WHAT?            HOW?
+                   │              │
+            Cause + reason    Confidence
+                              Energy
+                              Action
+                              Delta
+                   │              │
+                   └──────┬───────┘
+                          ↓
+                     Safety Gate
+                          ↓
+                autonomous / human_alert / log_only
+```
+
+The LLM provides the **intelligence**, Python provides the **facts**:
+
+| Question | Who answers | Output |
+| -------- | ----------- | ------ |
+| What is the likely cause? | LLM | `cause` (closed taxonomy) |
+| Why do I think that? | LLM | `evidence` list + `message` (free text) |
+| How sure are we? | Python | `cause_confidence` (evidence-weighted) |
+| How much energy was wasted? | Python | `energy_wasted_kwh` (sensors − MPC) |
+| What action is allowed? | Python | `proposed_action` (cause → action map) |
+| By how much should we correct? | Python | `delta_c` (residual, clamped) |
+| Is it safe to act? | Python | Safety Gate decision |
+
+### The Cause Taxonomy
+
+The LLM no longer writes a free-text cause. It picks **exactly one** value from
+a fixed taxonomy — this is what makes diagnoses comparable, filterable, and
+cooldown-aware (two runs writing "sensor fault" and "sensor malfunction" no
+longer drift apart):
+
+* `sensor_failure` — readings missing/erratic, no sensor response, flat temperature.
+* `hvac_underperformance` — HVAC was running but the room stayed hot anyway (system tried and failed).
+* `window_open_occupancy_gain` — occupied room overheating despite HVAC (open window / doors).
+* `unmodelled_internal_gain` — room overheats while the model fits well (heat source the model does not capture: equipment, servers, people density).
+* `calibration_drift` — the RC model itself no longer fits (high RMSE); predictions are biased.
+* `scheduling_error` — HVAC off/cooling at the wrong time vs occupancy (e.g. cooling an empty room).
+* `unknown` — cannot tell despite best effort (→ always human inspection).
+
+The Pydantic `DiagnosisContract` rejects any cause outside this taxonomy, so the
+LLM cannot sneak a made-up cause through.
+
+### Cause → Action mapping
+
+Each cause maps to exactly **one** action family (defined in `constants.py`):
+
+| Cause | Action | Gate behaviour |
+| ----- | ------ | -------------- |
+| `sensor_failure` | `inspection_required` | human_alert |
+| `hvac_underperformance` | `setpoint_change` | autonomous-eligible |
+| `window_open_occupancy_gain` | `setpoint_change` | autonomous-eligible |
+| `unmodelled_internal_gain` | `inspection_required` | human_alert |
+| `calibration_drift` | `schedule_correction` | autonomous-eligible |
+| `scheduling_error` | `schedule_correction` | autonomous-eligible |
+| `unknown` | `inspection_required` | human_alert |
+
+A broken sensor can never be "fixed" by a setpoint change, and an unknown cause
+never becomes an autonomous action.
+
+### How confidence is computed
+
+Python scores how many **real signals** corroborate the chosen cause:
+
+* **Temperature trend** — rising / falling / flat over the anomaly window
+* **HVAC behaviour** — was the system running and failing, or never trying?
+* **Occupancy** — was the room occupied during the anomaly?
+* **Model fit (RMSE)** — is the RC model itself trustworthy, or is *it* the problem?
+* **Recurrence** — has this room+cause happened before?
+
+Signal count → level (`CONFIDENCE_HIGH_AT` = 3, `CONFIDENCE_MEDIUM_AT` = 2,
+`CONFIDENCE_LOW_AT` = 1):
+
+| Corroborating signals | Confidence |
+| --------------------- | ---------- |
+| 3+ | `high` |
+| 2 | `medium` |
+| 1 | `low` |
+| 0 / contradictory | `undetermined` |
+
+`undetermined` always forces `inspection_required` → `human_alert`. The LLM no
+longer *declares* confidence — it is measured from the evidence.
+
+### How energy waste is computed
+
+```
+energy_wasted_kwh = Σ actual HVAC consumption during the anomaly (kWh)
+                  − Σ MPC predicted consumption over the same window (kWh)
+```
+
+Both sums come from real tables (`sensor_readings.q_hvac_w` and
+`mpc_schedules.predicted_kwh`), bounded by the anomaly window
+`[opened_at, closed_at]`. The result is clamped at 0 and stored with its basis:
+
+* `mpc_counterfactual` — real value computed (preferred)
+* `no_sensor_data` — no readings in the window → `None` (never fabricated)
+* `no_mpc_counterfactual` — no MPC schedule → `None` (never fabricated)
+
+### How delta_c is computed
+
+`delta_c` is derived from the **residual** (how far the room missed its band),
+clamped to `±DEFAULT_COMFORT_BOUNDS_DELTA_C` (default 2.0 °C):
+
+```text
+residual = measured − predicted  (e.g. +3.0 °C)
+delta_c  = clamp(residual × gain, −2.0, +2.0)
+```
+
+Because delta_c is bounded by the same constant the Safety Gate checks, an
+oversized correction automatically trips `human_alert` — the two layers stay
+consistent by construction.
 
 ### LangGraph workflow
 
@@ -217,17 +342,60 @@ validate_output
          └────→ json_repair → llm_reason
 ```
 
-The diagnostic agent uses **7 read-only tools** to gather evidence from:
+> `validate_output` runs the Pydantic `DiagnosisContract`. After the graph ends,
+> `evidence.finalize_diagnosis` overwrites the LLM-guessed confidence, energy
+> and action with the deterministic values before anything is persisted.
 
-* sensor history
-* inferred occupancy
-* MPC trajectories
-* HVAC state
-* similar anomalies
-* building context
-* neighboring zones
+### The investigation loop
 
-The output is validated using a Pydantic `DiagnosisContract`.
+```text
+Reason → Select tool → Execute tool → Update state → Reason again
+   ↑                                                        │
+   └────────────────────────────────────────────────────────┘
+   (repeat until enough evidence, or the 8-call budget is exhausted)
+```
+
+* The LLM receives the current **state** — the anomaly contract, evidence
+  gathered so far, tool history, and remaining budget.
+* It asks *"what do I already know, and what is still missing?"*
+* If more evidence is needed, it picks a tool; the Tool Executor runs it and the
+  result is added back to the state; the LLM reasons again with the updated
+  state.
+* The loop is bounded by a **maximum of 8 tool calls** (`TOOL_CALL_BUDGET`) —
+  the agent can never spin forever.
+* If the budget runs out without a verdict, the fallback node produces a safe
+  `unknown` / `inspection_required` result.
+
+### The seven diagnostic tools
+
+All tools are **read-only** — they provide evidence but never modify the
+database or control the building. The LLM decides which to call (budget of 8):
+
+| Tool | Evidence provided |
+| ---- | ----------------- |
+| `get_sensor_history` | Temperature evolution, shape of the deviation (mandatory 1st call) |
+| `get_calendar` | Inferred occupancy blocks (mandatory 2nd call) |
+| `get_mpc_trajectory` | What the system *intended* — setpoint + predicted temperature |
+| `get_hvac_logs` | Distinguishes "system did nothing" from "system tried and failed" |
+| `get_similar_anomalies` | Prior anomalies + their resolved causes (recurrence) |
+| `get_building_context` | Room geometry, orientation, HVAC spec, model fit (RMSE) |
+| `check_neighboring_zones` | Adjacent rooms — zone-local fault vs building-wide |
+
+After each call the result (summarised, downsampled) is added to the state so
+the LLM can decide whether it has enough evidence or needs another tool.
+
+### Validation & fallback (two layers of protection)
+
+1. **Pydantic (`DiagnosisContract`)** — "is the diagnosis *valid*?" Enforces the
+   schema: taxonomy cause, confidence enum, numeric fields, action enum. On
+   failure the system can repair the JSON up to **2 times**; if it still fails,
+   the fallback node emits a safe `inspection_required` result.
+2. **Safety Gate** — "is the proposed action *safe*?" A deterministic rule set
+   that routes `autonomous` / `human_alert` / `log_only` (see the Orchestrator
+   section).
+
+**The principle:** the LLM provides the intelligence; deterministic rules
+provide the control and safety.
 
 If the LLM fails to produce a valid diagnosis, the system falls back to a deterministic `inspection_required` decision.
 
@@ -246,11 +414,11 @@ This provides a complete audit trail.
 
 ---
 
-## Agent 4 — Supervisor
+## Orchestrator (formerly "Agent 4")
 
-**Role:** Coordinate the agents and make the final decision.
-
-The Supervisor runs the complete cycle:
+**Role:** Coordinate the agents and run the complete cycle. The orchestrator
+(`src/orchestration/`) is *not* an LLM agent — it is the deterministic
+coordinator that drives the workflow:
 
 ```text
 Calibration if required
@@ -270,6 +438,30 @@ Possible decisions:
 * `human_alert`
 * `log_only`
 
+### Cycle audit
+
+Every full cycle is recorded in `orchestration_runs` (one row per run): the
+counts for calibration / fast loop / diagnoses, the dispatched alerts, and
+per-room / per-diagnosis detail in JSONB columns. It is the orchestrator's
+audit table — queryable ("which alerts fired last week, from which anomaly?"),
+unlike the `logs/alerts.jsonl` notification feed.
+
+### Technical logs
+
+Each service also writes rotating **technical logs** (debugging/tracing only —
+never audit) to `logs/`:
+
+| Service            | File                    |
+| ------------------ | ----------------------- |
+| Agent 1 (building) | `logs/building_agent.log` |
+| Agent 2 (thermal)  | `logs/thermal_agent.log`  |
+| Agent 3 (diagnostic) | `logs/diagnostic_agent.log` |
+| Orchestrator       | `logs/orchestration.log`  |
+| Alerts (dispatch)  | `logs/alerts.jsonl`       |
+
+The split: **structured audit → DB** (queryable, tied to entities);
+**technical noise → files** (debug, exceptions, performance).
+
 ### Critical design principle
 
 > **The LLM never makes the final control decision by itself.**
@@ -282,7 +474,7 @@ The final gate is deterministic and based on explicit rules such as anomaly seve
 
 DynamIQ uses **Supabase PostgreSQL** as the shared persistence layer.
 
-The database contains 14 main tables covering:
+The database contains 15 main tables covering:
 
 * organizations
 * buildings
@@ -298,6 +490,7 @@ The database contains 14 main tables covering:
 * alerts
 * audit logs
 * building agent runs
+* orchestration runs
 
 The database therefore acts as the **shared communication layer between the agents**.
 
@@ -355,13 +548,14 @@ src/
     │   ├── supervisor.py
     │   ├── checkpointer.py
     │   └── api.py            # :8002 — health, anomaly queries, diagnose
+    └── logging_config.py     # shared rotating-file logger for all services
 
 orchestration/                    # (top-level, not an agent — coordinator)
     ├── orchestrate.py            # run_full_cycle: calibration → loop → diagnose → alert
     ├── scheduler.py              # run_forever / run_n_cycles (15-min cadence)
     ├── channels.py               # alert dispatch: log file + optional webhook
-    ├── db.py
-    └── api.py                    # :8003 — health, undiagnosed anomalies, run-cycle
+    ├── db.py                     # incl. orchestration_runs audit table
+    └── api.py                    # :8003 — health, undiagnosed anomalies, run-cycle, orchestration-runs
 
 frontend/
 tests/
@@ -379,7 +573,7 @@ Each agent exposes its own FastAPI process. Run from the repo root with
 | Agent 1 | 8010 | `agents.building_agent.api:app`           | `GET /health`, building catalog + vision pipeline metadata        |
 | Agent 2 | 8001 | `agents.thermal_agent.api:app`            | `GET /health`, rooms, models, MPC schedules, reports, anomalies   |
 | Agent 3 | 8002 | `agents.diagnostic_agent.api:app`         | `GET /health`, `GET /anomalies/{id}`, `POST /anomalies/{id}/diagnose` |
-| Orch.   | 8003 | `orchestration.api:app`                   | `GET /health`, `GET /buildings/{id}/undiagnosed-anomalies`, `POST /buildings/{id}/run-cycle` |
+| Orch.   | 8003 | `orchestration.api:app`                   | `GET /health`, `GET /buildings/{id}/undiagnosed-anomalies`, `GET /buildings/{id}/orchestration-runs`, `POST /buildings/{id}/run-cycle` |
 
 The frontend (`frontend/.env.example`) points at Agent 2 (`:8001`) and Agent 1
 (`:8010`); Agents 3 and 4 are called directly for live diagnosis and on-demand
@@ -414,10 +608,10 @@ The current implementation has been tested against the real Supabase environment
 | Agent 2 — Calibration           |         |
 | Agent 2 — MPC                   |         |
 | Agent 2 — Anomaly detection     |         |
-| Agent 3 — LLM diagnosis         |         |
+| Agent 3 — LLM cause classification |     |
+| Agent 3 — Evidence computation  |         |
 | Agent 3 — Validation & fallback |         |
-| Agent 4 — Orchestration         |         |
-| Agent 4 — Alert dispatch        |         |
+| Orchestrator — Cycle + alert dispatch |   |
 | Frontend                        | Mock    |
 
 ### Next phases

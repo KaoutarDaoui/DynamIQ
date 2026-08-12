@@ -39,6 +39,41 @@ VALID_ACTION_TYPES = (
     "no_action",
 )
 
+VALID_CAUSES = (
+    "sensor_failure",
+    "hvac_underperformance",
+    "window_open_occupancy_gain",
+    "unmodelled_internal_gain",
+    "calibration_drift",
+    "scheduling_error",
+    "unknown",
+)
+
+# Cause -> allowed autonomous action type. Mapping is exclusive: each cause
+# yields exactly one action family. "unknown" and causes without a safe
+# autonomous actor always route to inspection_required (-> human at the gate).
+CAUSE_TO_ACTION: dict[str, str] = {
+    "sensor_failure": "inspection_required",
+    "hvac_underperformance": "setpoint_change",
+    "window_open_occupancy_gain": "setpoint_change",
+    "unmodelled_internal_gain": "inspection_required",
+    "calibration_drift": "schedule_correction",
+    "scheduling_error": "schedule_correction",
+    "unknown": "inspection_required",
+}
+
+# Evidence-weighted confidence thresholds (number of corroborating signals).
+CONFIDENCE_HIGH_AT = 3
+CONFIDENCE_MEDIUM_AT = 2
+CONFIDENCE_LOW_AT = 1
+
+# delta_c severity scale: how much of the residual to offset as a setpoint
+# correction (fraction of the comfort band), applied as a clamp.
+DELTA_C_GAIN = 1.0
+
+# Energy waste: treat HVAC consumption below this many W as "not cooling".
+HVAC_COOLING_POWER_W = 0.0
+
 VALID_CAUSE_CONFIDENCE = ("high", "medium", "low", "undetermined")
 
 HUMAN_ALERT_ACTION_TYPES = ("shutdown", "lockout")

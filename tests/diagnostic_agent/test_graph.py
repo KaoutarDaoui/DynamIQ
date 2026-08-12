@@ -13,7 +13,7 @@ NOW = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
 
 def _verdict(**overrides):
     base = {
-        "cause": "AC failed to restart after power outage",
+        "cause": "hvac_underperformance",
         "cause_confidence": "high",
         "evidence": ["Temp rose sharply at 13:00", "Room empty 12h-14h"],
         "energy_wasted_kwh": 12.5,

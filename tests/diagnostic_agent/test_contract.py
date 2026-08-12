@@ -5,7 +5,7 @@ from agents.diagnostic_agent.contract import templated_fallback, validate_output
 
 def _valid_raw(**overrides):
     base = {
-        "cause": "schedule_mismatch",
+        "cause": "hvac_underperformance",
         "cause_confidence": "high",
         "evidence": ["Occupancy zero since Monday", "HVAC continuously conditioning"],
         "energy_wasted_kwh": 57.0,
@@ -51,11 +51,12 @@ class TestValidateOutput:
         assert result.valid is True
         assert result.output["proposed_action"]["type"] == "inspection_required"
 
-    def test_missing_evidence_fails(self) -> None:
+    def test_missing_evidence_defaults_gracefully(self) -> None:
         raw = _valid_raw()
         del raw["evidence"]
         result = validate_output(raw, anomaly_id=1, room_id="room-204")
-        assert result.valid is False
+        assert result.valid is True
+        assert result.output["evidence"] == []
 
     def test_missing_message_fails(self) -> None:
         raw = _valid_raw()
@@ -91,6 +92,18 @@ class TestValidateOutput:
         result = validate_output(_valid_raw(cause=42), anomaly_id=1, room_id="room-204")
         assert result.valid is False
         assert any("cause" in e for e in result.errors)
+
+    def test_cause_outside_taxonomy_fails(self) -> None:
+        result = validate_output(_valid_raw(cause="turn_off_the_whole_world"), anomaly_id=1, room_id="room-204")
+        assert result.valid is False
+        assert any("cause" in e for e in result.errors)
+
+    def test_all_taxonomy_causes_pass_validation(self) -> None:
+        from agents.diagnostic_agent.constants import VALID_CAUSES
+
+        for cause in VALID_CAUSES:
+            result = validate_output(_valid_raw(cause=cause), anomaly_id=1, room_id="room-204")
+            assert result.valid is True, f"{cause!r} should be a valid cause"
 
     def test_numeric_string_energy_fails(self) -> None:
         result = validate_output(_valid_raw(energy_wasted_kwh="57.0"), anomaly_id=1, room_id="room-204")

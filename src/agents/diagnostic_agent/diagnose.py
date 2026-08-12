@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -7,9 +8,11 @@ from typing import Any
 
 from sqlalchemy import Engine
 
-from . import constants, contract, db, graph, supervisor, tools
+from . import constants, contract, db, evidence, graph, supervisor, tools
 from .checkpointer import get_checkpointer
 from .input_contract import build_input_contract
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,8 @@ def diagnose_anomaly(
         node_trace = final_state.get("node_trace") or []
         timestamps = final_state.get("timestamps") or {}
 
+    validated = evidence.finalize_diagnosis(engine, anomaly, validated)
+
     building_context_result = tools.get_building_context(engine, room_id)
     comfort_bounds = supervisor.get_comfort_bounds_delta_c(
         building_context_result.get("data") if building_context_result.get("ok") else None
@@ -86,6 +91,16 @@ def diagnose_anomaly(
 
     if decision.decision == "human_alert":
         db.insert_alert(engine, diagnosis_id, room_id, channel="log", recipient="facility_manager", payload=validated)
+
+    logger.info(
+        "diagnosis anomaly=%d room=%s cause=%s confidence=%s decision=%s reason=%s",
+        anomaly_id,
+        room_id,
+        validated["cause"],
+        validated["cause_confidence"],
+        decision.decision,
+        decision.reason,
+    )
 
     audit_log_id = db.insert_audit_log(
         engine,

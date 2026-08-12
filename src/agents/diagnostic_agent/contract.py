@@ -37,22 +37,34 @@ _DEFAULT_RECURRENCE = {"seen_before": False, "last_occurrence": None, "long_term
 
 class DiagnosisContract(BaseModel):
     """Pydantic contract for the LLM's final verdict (replaces the manual
-    per-field validation). Unknown top-level keys are ignored."""
+    per-field validation). Unknown top-level keys are ignored.
+
+    The LLM only really decides ``cause``, ``evidence`` and ``message``.
+    ``cause_confidence``, ``energy_wasted_kwh`` and ``proposed_action`` are
+    recomputed deterministically from real data in ``evidence.finalize_*`` and
+    overwrite whatever the LLM guessed here."""
 
     cause: str
-    cause_confidence: str
-    evidence: list[str]
-    energy_wasted_kwh: float
-    energy_wasted_basis: str = "mpc_counterfactual"
-    proposed_action: ProposedAction
+    cause_confidence: str = "undetermined"
+    evidence: list[str] = Field(default_factory=list)
+    energy_wasted_kwh: float = 0.0
+    energy_wasted_basis: str = "unavailable"
+    proposed_action: ProposedAction = Field(default_factory=lambda: ProposedAction(type="inspection_required"))
     recurrence: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_RECURRENCE))
     message: str
 
-    @field_validator("cause", "message", mode="before")
+    @field_validator("cause", mode="before")
     @classmethod
     def _non_empty_str(cls, value: Any) -> Any:
         if not isinstance(value, str) or len(value) == 0:
             raise ValueError("must be a non-empty string")
+        return value
+
+    @field_validator("cause", mode="after")
+    @classmethod
+    def _valid_cause(cls, value: Any) -> Any:
+        if value not in constants.VALID_CAUSES:
+            raise ValueError(f"must be one of {constants.VALID_CAUSES}, got {value!r}")
         return value
 
     @field_validator("cause_confidence", mode="before")
@@ -122,7 +134,7 @@ def templated_fallback(anomaly_id: int, room_id: str, raw_anomaly: dict[str, Any
     return {
         "anomaly_id": anomaly_id,
         "room_id": room_id,
-        "cause": "undetermined",
+        "cause": "unknown",
         "cause_confidence": "undetermined",
         "evidence": [f"Automated diagnosis failed: {reason}", f"Raw anomaly: {raw_anomaly}"],
         "energy_wasted_kwh": 0.0,

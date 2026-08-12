@@ -229,6 +229,32 @@ def fetch_hvac_power_history(engine: Engine, room_id: str, hours: int) -> list[d
     return [{"ts": r.ts, "q_hvac_w": r.q_hvac_w} for r in rows]
 
 
+def fetch_sensor_readings_between(engine: Engine, room_id: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
+    with Session(engine) as session:
+        rows = session.exec(
+            select(SensorReadingsTable)
+            .where(SensorReadingsTable.room_id == room_id, SensorReadingsTable.ts >= start, SensorReadingsTable.ts <= end)
+            .order_by(SensorReadingsTable.ts.asc())
+        ).all()
+    return [
+        {"ts": r.ts, "temp_measured_c": r.temp_measured_c, "temp_ext_c": r.temp_ext_c, "q_occ_w": r.q_occ_w, "q_hvac_w": r.q_hvac_w}
+        for r in rows
+    ]
+
+
+def fetch_mpc_slots_between(engine: Engine, room_id: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
+    with Session(engine) as session:
+        rows = session.exec(
+            select(MpcSchedulesTable)
+            .where(MpcSchedulesTable.room_id == room_id, MpcSchedulesTable.slot_ts >= start, MpcSchedulesTable.slot_ts <= end)
+            .order_by(MpcSchedulesTable.slot_ts.asc())
+        ).all()
+    return [
+        {"slot_ts": r.slot_ts, "setpoint_c": r.setpoint_c, "predicted_temp_c": r.predicted_temp_c, "predicted_kwh": r.predicted_kwh, "predicted_gco2": r.predicted_gco2, "model_version": r.model_version}
+        for r in rows
+    ]
+
+
 def fetch_similar_anomalies(engine: Engine, room_id: str, days: int, exclude_anomaly_id: int | None = None) -> list[dict[str, Any]]:
     start = datetime.now(timezone.utc) - timedelta(days=days)
     with Session(engine) as session:
