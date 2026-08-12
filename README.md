@@ -43,11 +43,11 @@ The key principle is:
 
 ```text
                          ┌─────────────────────────────────────┐
-                         │       AGENT 4 — SUPERVISOR          │
+                         │          ORCHESTRATOR               │
+                         │       (src/orchestration)           │
                          │                                     │
-                         │  Orchestration + Deterministic Gate │
-                         │                                     │
-                         │ autonomous / human_alert / log_only│
+                         │  Calibration → Fast Loop →          │
+                         │  Diagnosis → Alert dispatch         │
                          └───────────────┬─────────────────────┘
                                          │
               ┌──────────────────────────┼──────────────────────────┐
@@ -58,7 +58,7 @@ The key principle is:
       │   Building    │          │    Thermal    │          │  Diagnostic   │
       │               │          │               │          │               │
       │ Plan → Model  │          │ RC + MPC +    │          │ LLM + 7 tools │
-      │               │          │ Anomaly       │          │               │
+      │               │          │ Anomaly       │          │ + gate        │
       └───────┬───────┘          └───────┬───────┘          └───────┬───────┘
               │                          │                          │
               └──────────────────────────┼──────────────────────────┘
@@ -82,7 +82,7 @@ The key principle is:
 
 Agents 1, 2, and 3 are independent modules. They do not import or directly call each other.
 
-They communicate through the shared PostgreSQL database, while **Agent 4 is the only coordinator** responsible for orchestrating the complete workflow.
+They communicate through the shared PostgreSQL database, while the **orchestrator** (`src/orchestration/`) is the only coordinator responsible for running the complete workflow. The deterministic safety gate (`autonomous` / `human_alert` / `log_only`) lives **inside Agent 3** (`diagnostic_agent/supervisor.py`) and is invoked by the orchestrator.
 
 ---
 
@@ -355,13 +355,13 @@ src/
     │   ├── supervisor.py
     │   ├── checkpointer.py
     │   └── api.py            # :8002 — health, anomaly queries, diagnose
-    │
-    └── supervisor/
-        ├── orchestrate.py
-        ├── scheduler.py
-        ├── channels.py
-        ├── db.py
-        └── api.py            # :8003 — health, undiagnosed anomalies, run-cycle
+
+orchestration/                    # (top-level, not an agent — coordinator)
+    ├── orchestrate.py            # run_full_cycle: calibration → loop → diagnose → alert
+    ├── scheduler.py              # run_forever / run_n_cycles (15-min cadence)
+    ├── channels.py               # alert dispatch: log file + optional webhook
+    ├── db.py
+    └── api.py                    # :8003 — health, undiagnosed anomalies, run-cycle
 
 frontend/
 tests/
@@ -374,12 +374,12 @@ dev/
 Each agent exposes its own FastAPI process. Run from the repo root with
 `uvicorn <app> --app-dir src --port <port>`:
 
-| Agent | Port | App                                    | Key endpoints                                                     |
-| ----- | ---- | -------------------------------------- | ----------------------------------------------------------------- |
-| 1     | 8010 | `agents.building_agent.api:app`        | `GET /health`, building catalog + vision pipeline metadata        |
-| 2     | 8001 | `agents.thermal_agent.api:app`         | `GET /health`, rooms, models, MPC schedules, reports, anomalies   |
-| 3     | 8002 | `agents.diagnostic_agent.api:app`      | `GET /health`, `GET /anomalies/{id}`, `POST /anomalies/{id}/diagnose` |
-| 4     | 8003 | `agents.supervisor.api:app`            | `GET /health`, `GET /buildings/{id}/undiagnosed-anomalies`, `POST /buildings/{id}/run-cycle` |
+| App     | Port | App                                       | Key endpoints                                                     |
+| ------- | ---- | ----------------------------------------- | ----------------------------------------------------------------- |
+| Agent 1 | 8010 | `agents.building_agent.api:app`           | `GET /health`, building catalog + vision pipeline metadata        |
+| Agent 2 | 8001 | `agents.thermal_agent.api:app`            | `GET /health`, rooms, models, MPC schedules, reports, anomalies   |
+| Agent 3 | 8002 | `agents.diagnostic_agent.api:app`         | `GET /health`, `GET /anomalies/{id}`, `POST /anomalies/{id}/diagnose` |
+| Orch.   | 8003 | `orchestration.api:app`                   | `GET /health`, `GET /buildings/{id}/undiagnosed-anomalies`, `POST /buildings/{id}/run-cycle` |
 
 The frontend (`frontend/.env.example`) points at Agent 2 (`:8001`) and Agent 1
 (`:8010`); Agents 3 and 4 are called directly for live diagnosis and on-demand

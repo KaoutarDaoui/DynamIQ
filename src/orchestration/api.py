@@ -158,4 +158,4 @@ def run_cycle(building_id: str, body: RunCycleRequest | None = None) -> CycleRes
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("agents.supervisor.api:app", host="0.0.0.0", port=8003, reload=True)
+    uvicorn.run("orchestration.api:app", host="0.0.0.0", port=8003, reload=True)

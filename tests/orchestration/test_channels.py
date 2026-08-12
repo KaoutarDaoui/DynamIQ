@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from agents.supervisor.channels import LogChannel, WebhookChannel, dispatch
+from orchestration.channels import LogChannel, WebhookChannel, dispatch
 
 
 class TestLogChannel:

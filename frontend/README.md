@@ -62,8 +62,8 @@ All seven call the Thermal Agent's own read API
   by energy wasted. Each row links into the same anomaly detail page above
   rather than duplicating a detail view.
 - Alerts page: `GET /buildings/{id}/alerts` — real `alerts` rows (only ever
-  written when Agent 4's `supervisor.decide()` in `diagnostic_agent` returns
-  `human_alert`). No `acknowledged` column exists in the real schema, so that
+  written when the safety gate's `decide()` in `diagnostic_agent/supervisor.py`
+  returns `human_alert`). No `acknowledged` column exists in the real schema, so that
   mock toggle/button was dropped rather than faked. As of this integration
   every diagnosis produced so far has resolved `autonomous`, so the page
   correctly renders an empty state — that's real system behavior, not a bug.

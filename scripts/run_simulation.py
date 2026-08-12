@@ -15,8 +15,8 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import numpy as np
 from sqlalchemy import text
 
-from agents.supervisor.db import fetch_undiagnosed_anomaly_ids
-from agents.supervisor.orchestrate import run_diagnosis_cycle
+from orchestration.db import fetch_undiagnosed_anomaly_ids
+from orchestration.orchestrate import run_diagnosis_cycle
 from agents.thermal_agent.db import (
     fetch_active_rc_model_params,
     fetch_building,
