@@ -10,9 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agents.thermal_agent.db import fetch_instrumented_room_ids
+from agents.logging_config import configure_agent_logging
 
 from . import constants, orchestrate
-from .db import fetch_undiagnosed_anomaly_ids, get_engine
+from .db import (
+    fetch_undiagnosed_anomaly_ids,
+    get_engine,
+    ensure_orchestration_runs_table,
+    fetch_recent_orchestration_runs,
+)
+
+configure_agent_logging("orchestration", "orchestration.log")
 
 app = FastAPI(title="DynamIQ Supervisor Agent API")
 
@@ -27,6 +35,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def _ensure_run_log_table() -> None:
+    ensure_orchestration_runs_table(get_engine())
 
 # No real occupancy schedule exists yet -- the fast loop needs a per-room
 # occupied array. Default to the ESI class schedule used everywhere else
@@ -103,6 +116,11 @@ def health() -> HealthResponse:
 @app.get("/buildings/{building_id}/undiagnosed-anomalies", response_model=list[int])
 def undiagnosed_anomalies(building_id: str) -> list[int]:
     return fetch_undiagnosed_anomaly_ids(get_engine(), building_id)
+
+
+@app.get("/buildings/{building_id}/orchestration-runs", response_model=list[dict[str, Any]])
+def recent_orchestration_runs(building_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    return fetch_recent_orchestration_runs(get_engine(), building_id, limit=limit)
 
 
 @app.post("/buildings/{building_id}/run-cycle", response_model=CycleResultOut)

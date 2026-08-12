@@ -3,11 +3,13 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from functools import lru_cache
+from typing import Any
 
 from dotenv import load_dotenv
 from sqlalchemy import Engine, func, create_engine
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import registry as orm_registry
-from sqlmodel import Field, Session, SQLModel, select
+from sqlmodel import Column, Field, Session, SQLModel, select
 
 load_dotenv()
 
@@ -75,3 +77,92 @@ def fetch_last_calibration_time(engine: Engine, building_id: str) -> datetime | 
     if result is not None and result.tzinfo is None:
         result = result.replace(tzinfo=timezone.utc)
     return result
+
+
+# ── orchestration_runs ──────────────────────────────────────────────────
+# Owns its own table definition (not shared schema) per the same file-scope
+# convention as building_agent.graph. One row per full orchestration cycle.
+
+ORCHESTRATION_RUNS_DDL = """
+CREATE TABLE IF NOT EXISTS public.orchestration_runs (
+    id serial PRIMARY KEY,
+    building_id varchar,
+    ran_at timestamptz,
+    calibration_count integer,
+    fast_loop_count integer,
+    diagnoses_count integer,
+    alerts_dispatched jsonb,
+    fast_loop_detail jsonb,
+    diagnosis_detail jsonb,
+    calibration_detail jsonb,
+    created_at timestamptz
+);
+"""
+
+
+class OrchestrationRunsTable(SupervisorBase, table=True):
+    __tablename__ = "orchestration_runs"  # type: ignore[assignment]
+
+    id: int | None = Field(default=None, primary_key=True)
+    building_id: str | None = None
+    ran_at: datetime | None = None
+    calibration_count: int | None = None
+    fast_loop_count: int | None = None
+    diagnoses_count: int | None = None
+    alerts_dispatched: Any = Field(default=None, sa_column=Column(JSONB))
+    fast_loop_detail: Any = Field(default=None, sa_column=Column(JSONB))
+    diagnosis_detail: Any = Field(default=None, sa_column=Column(JSONB))
+    calibration_detail: Any = Field(default=None, sa_column=Column(JSONB))
+    created_at: datetime | None = None
+
+
+def ensure_orchestration_runs_table(engine: Engine) -> None:
+    """Create orchestration_runs if it doesn't exist yet. Safe to call repeatedly."""
+    with engine.begin() as conn:
+        conn.exec_driver_sql(ORCHESTRATION_RUNS_DDL)
+
+
+def insert_orchestration_run(engine: Engine, record: dict[str, Any]) -> int:
+    with Session(engine) as session:
+        row = OrchestrationRunsTable(
+            building_id=record["building_id"],
+            ran_at=record["ran_at"],
+            calibration_count=record.get("calibration_count"),
+            fast_loop_count=record.get("fast_loop_count"),
+            diagnoses_count=record.get("diagnoses_count"),
+            alerts_dispatched=record.get("alerts_dispatched"),
+            fast_loop_detail=record.get("fast_loop_detail"),
+            diagnosis_detail=record.get("diagnosis_detail"),
+            calibration_detail=record.get("calibration_detail"),
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row.id
+
+
+def fetch_recent_orchestration_runs(engine: Engine, building_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    with Session(engine) as session:
+        rows = session.exec(
+            select(OrchestrationRunsTable)
+            .where(OrchestrationRunsTable.building_id == building_id)
+            .order_by(OrchestrationRunsTable.ran_at.desc())
+            .limit(limit)
+        ).all()
+    return [
+        {
+            "id": r.id,
+            "building_id": r.building_id,
+            "ran_at": r.ran_at,
+            "calibration_count": r.calibration_count,
+            "fast_loop_count": r.fast_loop_count,
+            "diagnoses_count": r.diagnoses_count,
+            "alerts_dispatched": r.alerts_dispatched,
+            "fast_loop_detail": r.fast_loop_detail,
+            "diagnosis_detail": r.diagnosis_detail,
+            "calibration_detail": r.calibration_detail,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]

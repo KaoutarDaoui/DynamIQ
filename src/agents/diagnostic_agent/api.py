@@ -8,8 +8,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from agents.logging_config import configure_agent_logging
 from . import diagnose
 from .db import fetch_anomaly, get_engine
+
+configure_agent_logging("agents.diagnostic_agent", "diagnostic_agent.log")
 
 app = FastAPI(title="DynamIQ Diagnostic Agent API")
 

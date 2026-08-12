@@ -5,8 +5,14 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import logging
+from agents.logging_config import configure_agent_logging
 from . import constants
 from .db import fetch_alerts_overview, fetch_anomaly_detail, fetch_anomalies_overview, fetch_diagnoses_overview, fetch_latest_mpc_schedule, fetch_mpc_rooms, fetch_reports_summary, fetch_room, fetch_thermal_overview, get_engine
+
+configure_agent_logging("agents.thermal_agent", "thermal_agent.log")
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DynamIQ Thermal Agent API")
 
@@ -35,6 +41,7 @@ def health() -> HealthResponse:
             db_ok = True
     except Exception:
         db_ok = False
+    logger.info("health check db_configured=%s", db_ok)
     return HealthResponse(status="ok", db_configured=db_ok)
 
 

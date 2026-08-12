@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlmodel import Session, func, select
 
+from agents.logging_config import configure_agent_logging
 from .building_agent import BuildingAgent
 from .config import engine, get_session
 from .db_manager import replace_room_air_conditioners, save_building, save_floor
@@ -20,6 +21,8 @@ from .graph import ensure_building_agent_runs_table
 from .plan_annotator import annotate_plan_with_room_numbers
 from .schema_models import Building, Floor, Room
 from .storage_client import upload_annotated_plan
+
+configure_agent_logging("agents.building_agent", "building_agent.log")
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +313,14 @@ async def upload_floor_plan(
         )
 
     flagged_ids = set(result.get("flagged_rooms", []))
+    logger.info(
+        "onboarding building=%s floor=%s rooms_saved=%d flagged=%d run_id=%s",
+        building_id,
+        floor_id,
+        len(result.get("saved_rooms", [])),
+        len(flagged_ids),
+        result.get("run_id"),
+    )
     return OnboardingResponse(
         building_id=building_id,
         floor_level=floor_level,
