@@ -25,8 +25,9 @@ import {
   Timer,
 } from "lucide-react";
 import clsx from "clsx";
-import { currentUser, notifications, globalAgents, buildings, floors, rooms } from "../data/mock";
-import type { AgentStatusState } from "../types";
+import { currentUser, notifications, globalAgents, buildings as mockBuildings } from "../data/mock";
+import { fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
+import type { AgentStatusState, Building } from "../types";
 
 const agentDot: Record<AgentStatusState, string> = {
   completed: "bg-teal-500",
@@ -50,7 +51,7 @@ function useTheme() {
   return { dark, toggle: () => setDark((d) => !d) };
 }
 
-function SearchInput() {
+function SearchInput({ buildings }: { buildings: Building[] }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
 
@@ -58,10 +59,8 @@ function SearchInput() {
     const term = q.trim().toLowerCase();
     if (!term) return [];
     const b = buildings.filter((x) => x.name.toLowerCase().includes(term)).map((x) => ({ to: `/b/${x.id}`, label: x.name, sub: "Building" }));
-    const f = floors.filter((x) => x.label.toLowerCase().includes(term)).map((x) => ({ to: `/b/${x.buildingId}/floors/${x.id}`, label: x.label, sub: "Floor" }));
-    const r = rooms.filter((x) => x.label.toLowerCase().includes(term) || x.hvac.unitId.toLowerCase().includes(term)).map((x) => ({ to: `/b/${"esi-algiers"}/rooms/${x.id}`, label: x.label, sub: x.hvac.unitId }));
-    return [...b, ...f, ...r].slice(0, 8);
-  }, [q]);
+    return b.slice(0, 8);
+  }, [q, buildings]);
 
   return (
     <div className="relative mx-2 hidden flex-1 max-w-md md:block">
@@ -178,7 +177,7 @@ function AiStatusDropdown() {
   );
 }
 
-function BuildingSwitcher() {
+function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
   const { buildingId } = useParams();
   const [open, setOpen] = useState(false);
   const current = buildings.find((b) => b.id === buildingId);
@@ -390,6 +389,21 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const { buildingId } = useParams();
   const [mpcRunning, setMpcRunning] = useState(true);
+  const [buildings, setBuildings] = useState<Building[]>(mockBuildings);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchOrgBuildings()
+      .then((dtos) => {
+        if (!cancelled) setBuildings(dtos.map(toPortfolioBuilding));
+      })
+      .catch(() => {
+        if (!cancelled) setBuildings(mockBuildings);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f4f1] dark:bg-[#161512]">
@@ -418,10 +432,10 @@ export default function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-ink-100 bg-white px-4 dark:border-ink-800 dark:bg-[#1b1a17]">
           <div className="flex min-w-0 items-center gap-2">
-            <BuildingSwitcher />
+            <BuildingSwitcher buildings={buildings} />
           </div>
 
-          <SearchInput />
+          <SearchInput buildings={buildings} />
 
           <div className="flex items-center gap-1.5">
             <span className="flex items-center gap-1 rounded-lg px-2 text-[12px] text-ink-500 dark:text-ink-300">

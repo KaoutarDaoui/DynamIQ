@@ -115,24 +115,35 @@ def get_hvac_logs(engine: Engine, room_id: str, hours: int = constants.HVAC_LOGS
                 changes.append({"ts": r["ts"].isoformat(), "hvac_power_w": power, "state": "cooling" if power < 0 else "off"})
             prev_power = power
         downsampled = _downsample(changes)
+        window_seconds = (rows[-1]["ts"] - rows[0]["ts"]).total_seconds() if len(rows) >= 2 else 0.0
+        cooling_seconds = sum(
+            (b["ts"] - a["ts"]).total_seconds()
+            for a, b in zip(rows, rows[1:])
+            if a["q_hvac_w"] < constants.HVAC_COOLING_POWER_W
+        )
         return {
             "room_id": room_id,
             "hours": hours,
             "changes_total": len(changes),
             "changes_returned": len(downsampled),
             "state_changes": downsampled,
+            "window_seconds": window_seconds,
+            "cooling_seconds": cooling_seconds,
             "note": "Derived from sensor_readings.q_hvac_w (the model's own control signal) -- there is no separate equipment command/state-change log table in this stack.",
         }
 
     return _wrap(run)
 
 
-def get_similar_anomalies(engine: Engine, room_id: str, days: int = constants.SIMILAR_ANOMALIES_DEFAULT_DAYS, exclude_anomaly_id: int | None = None) -> dict[str, Any]:
+def get_similar_anomalies(engine: Engine, room_id: str, days: int = constants.SIMILAR_ANOMALIES_DEFAULT_DAYS, exclude_anomaly_id: int | None = None, hours: int | None = None) -> dict[str, Any]:
     def run() -> Any:
-        rows = db.fetch_similar_anomalies(engine, room_id, days, exclude_anomaly_id)
+        lookback_days = days
+        if hours is not None:
+            lookback_days = max(1, int(-(-hours // 24)))
+        rows = db.fetch_similar_anomalies(engine, room_id, lookback_days, exclude_anomaly_id)
         return {
             "room_id": room_id,
-            "days": days,
+            "days": lookback_days,
             "prior_anomalies": [
                 {
                     "anomaly_id": r["id"],
@@ -249,6 +260,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "room_id": {"type": "string"},
                     "days": {"type": "integer", "default": constants.SIMILAR_ANOMALIES_DEFAULT_DAYS},
+                    "hours": {"type": "integer", "description": "Optional override; converted to days (ceil)."},
                 },
                 "required": ["room_id"],
             },

@@ -8,9 +8,10 @@ export const DEFAULT_ORG_ID = "ORG_AMAZON";
 
 const THERMAL_API_BASE = import.meta.env.VITE_THERMAL_API_URL ?? "http://localhost:8001";
 
-// Only the ESI Algiers pilot has real Agent 1-4 data in Supabase right now;
-// every other building in this UI is still a Portfolio-page mock.
-const BUILDING_ID_MAP: Record<string, string> = { "esi-algiers": "1" };
+// Identity map: every building_id (e.g. "djezzy-hq") is passed through
+// unchanged to the API — the `BUILDING_ID_MAP[buildingId] ?? buildingId`
+// fallback below already performs the identity. No legacy translations.
+const BUILDING_ID_MAP: Record<string, string> = {};
 
 export class ApiError extends Error {
   status: number;

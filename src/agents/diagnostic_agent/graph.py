@@ -38,8 +38,8 @@ A FINAL-VERDICT answer looks like:
 Cause taxonomy -- pick the SINGLE closest match:
 - "sensor_failure": readings missing/erratic, no sensor response, flat temperature.
 - "hvac_underperformance": HVAC was running but the room stayed hot anyway (system tried and failed).
-- "window_open_occupancy_gain": occupied room overheating despite HVAC, e.g. open window / doors.
-- "unmodelled_internal_gain": room overheats while the model fits well -- heat source the model does not capture (equipment, servers, people density).
+- "window_open_occupancy_gain": OCCUPIED room overheating while HVAC IS running and compensating (open window / doors let heat in, HVAC cannot recover). NOT this if HVAC is off.
+- "unmodelled_internal_gain": room overheats with the HVAC INACTIVE or unable to explain the rise, from a heat source the model does not capture (equipment, servers, people density, or a load unrelated to weather/envelope). Prefer this when there is no cooling response.
 - "calibration_drift": the RC model itself no longer fits (high RMSE) -- predictions are biased.
 - "scheduling_error": HVAC off/cooling at the wrong time vs occupancy (e.g. cooling an empty room).
 - "unknown": you cannot tell despite your best effort.
@@ -100,7 +100,7 @@ def _extract_json(text: str | None) -> Any:
         except (json.JSONDecodeError, ValueError):
             continue
         if isinstance(obj, dict):
-            if "tool" in obj or ("cause" in obj and "proposed_action" in obj):
+            if "tool" in obj or "cause" in obj:
                 return obj
             candidates.append(obj)
     return candidates[0] if candidates else None
@@ -156,6 +156,8 @@ def _summarize_tool_result(name: str, result: dict[str, Any]) -> str:
     if name == "get_sensor_history":
         series = data.get("series") or []
         temps = [p.get("temp_measured_c") for p in series if p.get("temp_measured_c") is not None]
+        occupied = [p.get("occupied") for p in series if p.get("occupied") is not None]
+        occ_desc = "yes" if any(occupied) else "no"
         if not temps:
             return f"{name}: no temperature readings in the window"
         trend = "stable"
@@ -163,9 +165,13 @@ def _summarize_tool_result(name: str, result: dict[str, Any]) -> str:
             trend = "rising"
         elif len(temps) >= 2 and temps[0] > temps[-1] + 0.3:
             trend = "falling"
-        return f"{name}: {len(temps)} readings, T in [{min(temps):.1f}, {max(temps):.1f}] C, latest {temps[-1]:.1f} C ({trend})"
+        return f"{name}: {len(temps)} readings, T in [{min(temps):.1f}, {max(temps):.1f}] C, latest {temps[-1]:.1f} C ({trend}), occupied during window: {occ_desc}"
     if name == "get_calendar":
         blocks = data.get("occupancy_blocks_observed") or []
+        if blocks:
+            first = blocks[0].get("start")
+            last = blocks[-1].get("end")
+            return f"{name}: {len(blocks)} observed occupancy block(s) over {data.get('days')} days, first {first}, last {last}"
         return f"{name}: {len(blocks)} observed occupancy block(s) over {data.get('days')} days"
     if name == "get_mpc_trajectory":
         trajectory = data.get("trajectory") or []
@@ -179,7 +185,13 @@ def _summarize_tool_result(name: str, result: dict[str, Any]) -> str:
     if name == "get_hvac_logs":
         changes = data.get("state_changes") or []
         last_state = changes[-1].get("state") if changes else "unknown"
-        return f"{name}: {data.get('changes_total')} HVAC state change(s), current state {last_state}"
+        cooling_seconds = data.get("cooling_seconds", 0)
+        window_seconds = data.get("window_seconds", 0)
+        share = f" ({100.0 * cooling_seconds / window_seconds:.0f}% of the window cooling)" if window_seconds else ""
+        return (
+            f"{name}: {data.get('changes_total')} HVAC state change(s), current state {last_state}, "
+            f"cooling was active ~{cooling_seconds / 3600.0:.1f}h of the {window_seconds / 3600.0:.1f}h window{share}"
+        )
     if name == "get_similar_anomalies":
         prior = data.get("prior_anomalies") or []
         causes = [p.get("resolved_cause") for p in prior if p.get("resolved_cause")]
@@ -336,7 +348,7 @@ def route_from_llm(state: DiagnosisState) -> str:
     if isinstance(parsed, dict):
         if "tool" in parsed:
             return "tool_executor"
-        if "cause" in parsed and "proposed_action" in parsed:
+        if "cause" in parsed:
             return "validate_output"
     return "fallback_node"
 
