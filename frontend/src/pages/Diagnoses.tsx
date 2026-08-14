@@ -80,7 +80,6 @@ export default function Diagnoses() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-[20px] font-medium">Diagnoses</h1>
-          <p className="mt-1 text-[13px] text-ink-400">Every root-cause conclusion Agent 3 has produced for this building — live from the diagnostic agent, not mocked.</p>
         </div>
         <button
           onClick={() => setReloadKey((k) => k + 1)}

@@ -23,6 +23,7 @@ from agents.thermal_agent.rc import generate_synthetic_scenario
 from agents.thermal_agent.zone_model import build_zone_model
 
 BUILDING_ID = "djezzy-hq"
+DEFAULT_ORG_ID = "ORG_AMAZON"
 BUILDING = {
     "building_id": BUILDING_ID,
     "name": "Djezzy HQ Annex",
@@ -31,6 +32,7 @@ BUILDING = {
     "longitude": 3.033,
     "total_floors": 3,
     "country_code": "DZ",
+    "org_id": DEFAULT_ORG_ID,
 }
 FLOORS = [
     {"floor_id": f"{BUILDING_ID}-floor-1", "building_id": BUILDING_ID, "level": 1, "name": "Ground Floor"},
@@ -130,15 +132,15 @@ def main() -> None:
 
     with engine.begin() as conn:
         conn.execute(
-            text("INSERT INTO buildings (building_id, name, address, latitude, longitude, total_floors, country_code) VALUES (:building_id, :name, :address, :latitude, :longitude, :total_floors, :country_code)"),
+            text("INSERT INTO buildings (building_id, name, address, latitude, longitude, total_floors, country_code, org_id) VALUES (:building_id, :name, :address, :latitude, :longitude, :total_floors, :country_code, :org_id)"),
             BUILDING,
         )
         for floor in FLOORS:
             conn.execute(text("INSERT INTO floors (floor_id, building_id, level, name) VALUES (:floor_id, :building_id, :level, :name)"), floor)
         for room in ROOMS:
             conn.execute(
-                text("INSERT INTO rooms (room_id, floor_id, room_label, room_type, area_m2, volume_m3, primary_orientation, r_wall, c_zone, sensor_id, config_json) VALUES (:room_id, :floor_id, :room_label, :room_type, :area_m2, :volume_m3, :primary_orientation, :r_wall, :c_zone, :sensor_id, :config_json)"),
-                {**room, "config_json": json.dumps(room["config_json"])},
+                text("INSERT INTO rooms (room_id, floor_id, building_id, room_label, room_type, area_m2, volume_m3, primary_orientation, r_wall, c_zone, sensor_id, config_json) VALUES (:room_id, :floor_id, :building_id, :room_label, :room_type, :area_m2, :volume_m3, :primary_orientation, :r_wall, :c_zone, :sensor_id, :config_json)"),
+                {**room, "building_id": BUILDING_ID, "config_json": json.dumps(room["config_json"])},
             )
     print(f"\nInserted building {BUILDING_ID!r}: {len(FLOORS)} floors, {len(ROOMS)} rooms.")
 
