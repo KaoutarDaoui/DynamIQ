@@ -20,7 +20,7 @@ from .config import engine, get_session
 from .db_manager import replace_room_air_conditioners, save_building, save_floor
 from .graph import ensure_building_agent_runs_table
 from .plan_annotator import annotate_plan_with_room_numbers
-from .schema_models import Building, Floor, Room, User
+from .schema_models import AirConditioner, Building, Floor, Room, User
 from .storage_client import upload_annotated_plan
 
 configure_agent_logging("agents.building_agent", "building_agent.log")
@@ -289,6 +289,87 @@ async def list_org_buildings(org_id: str, session: SessionDep) -> list[BuildingS
     return summaries
 
 
+class AcRegistryEntry(BaseModel):
+    room_id: str
+    room_label: str
+    floor_id: str
+    floor_level: int
+    ac_id: str
+    manufacturer: str | None
+    model: str | None
+    cooling_capacity_kw: float | None
+    heating_capacity_kw: float | None
+    power_kw: float | None
+    status: str
+
+
+@app.get(
+    "/buildings/{building_id}/ac-registry",
+    response_model=list[AcRegistryEntry],
+    summary="List every room and its AC units for a building",
+)
+async def get_ac_registry(building_id: str, session: SessionDep) -> list[AcRegistryEntry]:
+    floor_rows = session.exec(
+        select(Floor.floor_id, Floor.level).where(Floor.building_id == building_id)
+    ).all()
+    level_by_floor = {floor_id: level for floor_id, level in floor_rows}
+    if not level_by_floor:
+        return []
+    room_rows = session.exec(
+        select(Room).where(Room.floor_id.in_(level_by_floor.keys())).order_by(Room.room_label.asc())
+    ).all()
+    room_labels = {r.room_id: r.room_label for r in room_rows}
+    if not room_labels:
+        return []
+    ac_rows = session.exec(
+        select(AirConditioner)
+        .where(AirConditioner.room_id.in_(room_labels.keys()))
+        .order_by(AirConditioner.ac_id.asc())
+    ).all()
+    acs_by_room: dict[str, list[AirConditioner]] = {}
+    for ac in ac_rows:
+        acs_by_room.setdefault(ac.room_id, []).append(ac)
+    entries: list[AcRegistryEntry] = []
+    for room in room_rows:
+        level = level_by_floor.get(room.floor_id, 0)
+        hvac = (room.config_json or {}).get("hvac", {}) if isinstance(room.config_json, dict) else {}
+        room_acs = acs_by_room.get(room.room_id, [])
+        if room_acs:
+            for ac in room_acs:
+                entries.append(
+                    AcRegistryEntry(
+                        room_id=ac.room_id,
+                        room_label=room_labels[ac.room_id],
+                        floor_id=room.floor_id,
+                        floor_level=level,
+                        ac_id=ac.ac_id,
+                        manufacturer=ac.manufacturer,
+                        model=ac.model,
+                        cooling_capacity_kw=ac.cooling_capacity_kw,
+                        heating_capacity_kw=ac.heating_capacity_kw,
+                        power_kw=ac.power_kw,
+                        status=ac.status,
+                    )
+                )
+        else:
+            entries.append(
+                AcRegistryEntry(
+                    room_id=room.room_id,
+                    room_label=room.room_label,
+                    floor_id=room.floor_id,
+                    floor_level=level,
+                    ac_id=f"{room.room_id}-ac-01",
+                    manufacturer=None,
+                    model=None,
+                    cooling_capacity_kw=hvac.get("capacity_kw"),
+                    heating_capacity_kw=None,
+                    power_kw=None,
+                    status="active",
+                )
+            )
+    return entries
+
+
 @app.post(
     "/buildings/{building_id}/floors/{floor_level}/upload",
     response_model=OnboardingResponse,
@@ -333,7 +414,7 @@ async def upload_floor_plan(
             filename=plan_file.filename,
             north_angle_deg=north_angle_deg,
             building_id=building_id,
-            floor_level=floor_level,
+            floor_level=level,
             floor_name=floor_name,
             expected_room_count=expected_room_count,
         )
@@ -385,7 +466,7 @@ async def upload_floor_plan(
     )
     return OnboardingResponse(
         building_id=building_id,
-        floor_level=floor_level,
+        floor_level=level,
         floor_id=floor_id,
         rooms_saved=len(result.get("saved_rooms", [])),
         rooms_flagged=len(result.get("flagged_rooms", [])),
