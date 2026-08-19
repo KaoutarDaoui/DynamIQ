@@ -2,9 +2,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
 import { AlertTriangle, Download, RefreshCw } from "lucide-react";
-import { fetchReportsSummary, ThermalApiError } from "../lib/api";
+import { fetchOrgBuildings, fetchReportsSummary, ThermalApiError } from "../lib/api";
 import { exportReportsPdf } from "../lib/pdf";
-import { buildingById } from "../data/mock";
 import type { ReportsSummary } from "../types";
 import { Card, CardHeader, PrimaryButton, StatCard } from "../components/ui";
 
@@ -13,12 +12,25 @@ function isDark() {
 }
 
 export default function Reports() {
-  const { buildingId = "esi-algiers" } = useParams();
+  const { buildingId = "djezzy-hq" } = useParams();
   const [summary, setSummary] = useState<ReportsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
-  const buildingLabel = buildingById(buildingId)?.name ?? buildingId;
+  const [buildingLabel, setBuildingLabel] = useState<string>(buildingId);
+
+  useEffect(() => {
+    let active = true;
+    fetchOrgBuildings()
+      .then((bs) => {
+        const b = bs.find((x) => x.building_id === buildingId);
+        if (b && active) setBuildingLabel(b.name);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [buildingId]);
 
   useEffect(() => {
     const controller = new AbortController();

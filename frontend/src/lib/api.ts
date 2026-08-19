@@ -58,6 +58,53 @@ export interface BuildingSummaryDto {
   rooms_count: number;
 }
 
+export interface AcRegistryEntry {
+  roomId: string;
+  roomLabel: string;
+  floorId: string;
+  floorLevel: number;
+  acId: string;
+  manufacturer: string | null;
+  model: string | null;
+  coolingCapacityKw: number | null;
+  heatingCapacityKw: number | null;
+  powerKw: number | null;
+  status: string;
+}
+
+interface AcRegistryApiResponse {
+  room_id: string;
+  room_label: string;
+  floor_id: string;
+  floor_level: number;
+  ac_id: string;
+  manufacturer: string | null;
+  model: string | null;
+  cooling_capacity_kw: number | null;
+  heating_capacity_kw: number | null;
+  power_kw: number | null;
+  status: string;
+}
+
+export async function fetchAcRegistry(buildingId: string, signal?: AbortSignal): Promise<AcRegistryEntry[]> {
+  const res = await fetch(`${API_BASE_URL}/buildings/${encodeURIComponent(buildingId)}/ac-registry`, { signal });
+  if (!res.ok) return [];
+  const data: AcRegistryApiResponse[] = await res.json();
+  return data.map((a) => ({
+    roomId: a.room_id,
+    roomLabel: a.room_label,
+    floorId: a.floor_id,
+    floorLevel: a.floor_level,
+    acId: a.ac_id,
+    manufacturer: a.manufacturer,
+    model: a.model,
+    coolingCapacityKw: a.cooling_capacity_kw,
+    heatingCapacityKw: a.heating_capacity_kw,
+    powerKw: a.power_kw,
+    status: a.status,
+  }));
+}
+
 export interface BuildingCreatePayload {
   name: string;
   address?: string;
