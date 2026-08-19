@@ -51,6 +51,11 @@ class BuildingsTable(ThermalBase, table=True):
     created_at: datetime | None = None
     org_id: str | None = None
 
+class OrganisationsTable(ThermalBase, table=True):
+    __tablename__ = 'organisations'
+    org_id: str = Field(primary_key=True)
+    email: str | None = None
+
 class RoomAdjacenciesTable(ThermalBase, table=True):
     __tablename__ = 'room_adjacencies'
     room_id: str = Field(primary_key=True)
@@ -200,6 +205,28 @@ def fetch_building(engine: Engine, building_id: str) -> BuildingRecord:
     if row is None:
         raise LookupError(f'Building not found: {building_id}')
     return BuildingRecord(building_id=row.building_id, name=row.name, latitude=row.latitude, longitude=row.longitude, total_floors=row.total_floors, country_code=row.country_code)
+
+def fetch_org_alert_email(engine: Engine, building_id: str) -> str | None:
+    with Session(engine) as session:
+        result = session.exec(
+            select(OrganisationsTable.email)
+            .join(BuildingsTable, BuildingsTable.org_id == OrganisationsTable.org_id)
+            .where(BuildingsTable.building_id == building_id)
+        ).first()
+    return result
+
+def update_org_alert_email(engine: Engine, building_id: str, email: str) -> bool:
+    with Session(engine) as session:
+        building = session.get(BuildingsTable, building_id)
+        if building is None or building.org_id is None:
+            return False
+        org = session.get(OrganisationsTable, building.org_id)
+        if org is None:
+            return False
+        org.email = email
+        session.add(org)
+        session.commit()
+        return True
 
 def fetch_room_adjacencies(engine: Engine, room_id: str) -> list[AdjacencyRecord]:
     with Session(engine) as session:

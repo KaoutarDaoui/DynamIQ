@@ -21,6 +21,7 @@ import {
 import clsx from "clsx";
 import { Card, PrimaryButton, inputClass } from "../components/ui";
 import { ApiError, fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import type { AgentStatusState, Building } from "../types";
 
 const agentStateStyles: Record<AgentStatusState, string> = {
@@ -173,13 +174,7 @@ function BuildingCard({ building }: { building: Building }) {
         </span>
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[12px] text-ink-400">
-          <Sun size={12} />
-          <span>
-            Outside temperature <span className="font-medium text-ink-800 dark:text-ink-100">{building.weather.tempC}°C</span>
-          </span>
-        </div>
+      <div className="mt-4 flex items-center justify-end">
         <Link to={base} className="shrink-0 rounded-xl bg-primary-500 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-primary-600">
           Open dashboard
         </Link>
@@ -206,12 +201,13 @@ export default function Portfolio() {
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { orgId } = useAuth();
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchOrgBuildings()
+    fetchOrgBuildings(orgId ?? undefined)
       .then((dtos) => {
         if (!cancelled) setBuildings(dtos.map(toPortfolioBuilding));
       })
@@ -224,7 +220,7 @@ export default function Portfolio() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [orgId]);
 
   const totals = useMemo(
     () => ({

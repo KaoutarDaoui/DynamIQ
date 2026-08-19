@@ -33,6 +33,7 @@ def run_diagnosis_cycle(
 ) -> list[diagnostic_diagnose.DiagnosisRunResult]:
     anomaly_ids = db.fetch_undiagnosed_anomaly_ids(engine, building_id)
     results = []
+    alert_email = db.fetch_org_alert_email(engine, building_id)
     for anomaly_id in anomaly_ids:
         result = diagnostic_diagnose.diagnose_anomaly(engine, anomaly_id)
         results.append(result)
@@ -47,6 +48,7 @@ def run_diagnosis_cycle(
                     "message": result.validated_output["message"],
                     "proposed_action": result.validated_output["proposed_action"],
                     "supervisor_reason": result.supervisor_decision.reason,
+                    "alert_email": alert_email,
                 },
                 alert_channels,
             )

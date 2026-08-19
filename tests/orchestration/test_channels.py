@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import smtplib
 
 import httpx
 import pytest
 
-from orchestration.channels import LogChannel, WebhookChannel, dispatch
+from orchestration.channels import EmailChannel, LogChannel, WebhookChannel, dispatch
 
 
 class TestLogChannel:
@@ -61,6 +62,85 @@ class TestWebhookChannel:
 
         monkeypatch.setattr(httpx, "post", fake_post)
         channel = WebhookChannel("https://example.com/webhook")
+        assert channel.send({"room_id": "room-1"}) is False
+
+
+class TestEmailChannel:
+    def test_success_returns_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sent: dict = {}
+
+        class FakeSmtp:
+            def __init__(self, host, port, timeout=None):
+                sent["host"] = host
+                sent["port"] = port
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def login(self, user, password):
+                sent["user"] = user
+                sent["password"] = password
+
+            def send_message(self, message):
+                sent["message"] = message
+
+        monkeypatch.setattr(smtplib, "SMTP_SSL", FakeSmtp)
+        channel = EmailChannel("smtp.gmail.com", 465, "bot@example.com", "app-password", "facility@example.com")
+        assert channel.send({"room_id": "room-1", "cause": "schedule_mismatch"}) is True
+        assert sent["host"] == "smtp.gmail.com"
+        assert sent["user"] == "bot@example.com"
+        assert sent["message"]["To"] == "facility@example.com"
+        assert "room-1" in sent["message"].get_content()
+
+    def test_smtp_failure_returns_false_not_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class FailingSmtp:
+            def __init__(self, host, port, timeout=None):
+                pass
+
+            def __enter__(self):
+                raise smtplib.SMTPConnectError(421, "cannot connect")
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(smtplib, "SMTP_SSL", FailingSmtp)
+        channel = EmailChannel("smtp.gmail.com", 465, "bot@example.com", "app-password", "facility@example.com")
+        assert channel.send({"room_id": "room-1"}) is False
+
+    def test_payload_alert_email_overrides_default_recipient(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sent: dict = {}
+
+        class FakeSmtp:
+            def __init__(self, host, port, timeout=None):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def login(self, user, password):
+                pass
+
+            def send_message(self, message):
+                sent["message"] = message
+
+        monkeypatch.setattr(smtplib, "SMTP_SSL", FakeSmtp)
+        channel = EmailChannel("smtp.gmail.com", 465, "bot@example.com", "app-password", "fallback@example.com")
+        assert channel.send({"room_id": "room-1", "alert_email": "real-org@example.com"}) is True
+        assert sent["message"]["To"] == "real-org@example.com"
+        assert "alert_email" not in sent["message"].get_content()
+
+    def test_no_recipient_available_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unexpected_smtp(*args, **kwargs):
+            raise AssertionError("should not attempt to connect with no recipient")
+
+        monkeypatch.setattr(smtplib, "SMTP_SSL", unexpected_smtp)
+        channel = EmailChannel("smtp.gmail.com", 465, "bot@example.com", "app-password", "")
         assert channel.send({"room_id": "room-1"}) is False
 
 

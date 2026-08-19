@@ -139,6 +139,31 @@ class AirConditioner(SQLModel, table=True):
     pos_y: float | None = None
 
 
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+
+    user_id: str = Field(primary_key=True)
+    name: str
+    email: str = Field(unique=True, index=True)
+    password_hash: str
+    password_salt: str
+    # Which organisation's buildings this user can see — reuses the same
+    # org_id scoping buildings already have, so "give a user access to the
+    # existing buildings" is just setting this, not a separate grant table.
+    org_id: str | None = Field(default=None, foreign_key="organisations.org_id")
+    role: str = "viewer"
+    created_at: datetime | None = None
+
+
+class UserSession(SQLModel, table=True):
+    __tablename__ = "user_sessions"
+
+    token: str = Field(primary_key=True)
+    user_id: str = Field(foreign_key="users.user_id")
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
 def default_room_config() -> dict[str, Any]:
     """Return the standard room configuration payload."""
 
