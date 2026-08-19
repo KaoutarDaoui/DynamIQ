@@ -276,6 +276,7 @@ def _tool_executor_node(state: DiagnosisState, engine: Engine) -> dict[str, Any]
                 "tool": name,
                 "params": params,
                 "result_summary": summary,
+                "result": result.get("data") if result.get("ok") else {},
                 "ok": result.get("ok", False),
                 "timestamp": _now_iso(),
             }

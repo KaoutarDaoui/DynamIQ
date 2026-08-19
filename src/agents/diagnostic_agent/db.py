@@ -161,6 +161,40 @@ class AuditLogTable(DiagnosticBase, table=True):
     created_at: datetime | None = None
 
 
+class ActionDecisionsTable(DiagnosticBase, table=True):
+    __tablename__ = "action_decisions"
+    id: int | None = Field(default=None, primary_key=True)
+    anomaly_id: int
+    diagnosis_id: int | None = None
+    room_id: str
+    decision: str
+    action_type: str | None = None
+    delta_c: float | None = None
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+
+
+ACTION_DECISIONS_DDL = """
+CREATE TABLE IF NOT EXISTS public.action_decisions (
+    id serial PRIMARY KEY,
+    anomaly_id integer NOT NULL,
+    diagnosis_id integer,
+    room_id varchar,
+    decision varchar NOT NULL,
+    action_type varchar,
+    delta_c double precision,
+    decided_by varchar,
+    decided_at timestamptz
+);
+"""
+
+
+def ensure_action_decisions_table(engine: Engine) -> None:
+    """Create action_decisions if it doesn't exist yet. Safe to call repeatedly."""
+    with engine.begin() as conn:
+        conn.exec_driver_sql(ACTION_DECISIONS_DDL)
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     database_url = os.getenv("DATABASE_URL")
@@ -368,3 +402,61 @@ def fetch_recent_diagnoses_for_cooldown(engine: Engine, room_id: str, cause: str
     with Session(engine) as session:
         rows = session.exec(select(DiagnosesTable).where(DiagnosesTable.room_id == room_id, DiagnosesTable.cause == cause, DiagnosesTable.created_at >= start).order_by(DiagnosesTable.created_at.desc())).all()
     return [{"id": r.id, "created_at": r.created_at, "supervisor_decision": r.supervisor_decision} for r in rows]
+
+
+def fetch_audit_log(engine: Engine, anomaly_id: int) -> dict[str, Any] | None:
+    with Session(engine) as session:
+        row = session.exec(select(AuditLogTable).where(AuditLogTable.anomaly_id == anomaly_id).order_by(AuditLogTable.id.desc())).first()
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "anomaly_id": row.anomaly_id,
+        "room_id": row.room_id,
+        "invoked_at": row.invoked_at,
+        "tool_calls": row.tool_calls,
+        "model_output": row.model_output,
+        "supervisor_decision": row.supervisor_decision,
+        "diagnosis_id": row.diagnosis_id,
+        "created_at": row.created_at,
+    }
+
+
+def insert_action_decision(engine: Engine, record: dict[str, Any]) -> int:
+    with Session(engine) as session:
+        row = ActionDecisionsTable(
+            anomaly_id=record["anomaly_id"],
+            diagnosis_id=record.get("diagnosis_id"),
+            room_id=record["room_id"],
+            decision=record["decision"],
+            action_type=record.get("action_type"),
+            delta_c=record.get("delta_c"),
+            decided_by=record.get("decided_by"),
+            decided_at=record.get("decided_at") or datetime.now(timezone.utc),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row.id
+
+
+def fetch_action_decision(engine: Engine, anomaly_id: int) -> dict[str, Any] | None:
+    with Session(engine) as session:
+        row = session.exec(
+            select(ActionDecisionsTable)
+            .where(ActionDecisionsTable.anomaly_id == anomaly_id)
+            .order_by(ActionDecisionsTable.decided_at.desc())
+        ).first()
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "anomaly_id": row.anomaly_id,
+        "diagnosis_id": row.diagnosis_id,
+        "room_id": row.room_id,
+        "decision": row.decision,
+        "action_type": row.action_type,
+        "delta_c": row.delta_c,
+        "decided_by": row.decided_by,
+        "decided_at": row.decided_at,
+    }

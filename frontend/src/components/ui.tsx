@@ -96,18 +96,22 @@ export function PrimaryButton({
   onClick,
   type = "button",
   className,
+  disabled,
 }: {
   children: ReactNode;
   onClick?: () => void;
   type?: "button" | "submit";
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
+      disabled={disabled}
       className={clsx(
         "inline-flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-[14px] font-medium text-white transition hover:bg-primary-600 active:bg-primary-700 dark:hover:bg-primary-400",
+        disabled && "opacity-50 cursor-not-allowed hover:bg-primary-500 dark:hover:bg-primary-500",
         className
       )}
     >
@@ -120,16 +124,20 @@ export function SecondaryButton({
   children,
   onClick,
   className,
+  disabled,
 }: {
   children: ReactNode;
   onClick?: () => void;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={clsx(
         "inline-flex items-center justify-center gap-2 rounded-xl border border-navy-200 bg-white px-4 py-2.5 text-[14px] font-medium text-navy-700 transition hover:border-navy-300 hover:bg-navy-50 dark:border-navy-700 dark:bg-ink-900 dark:text-navy-200 dark:hover:bg-navy-900/40",
+        disabled && "opacity-50 cursor-not-allowed hover:border-navy-200 hover:bg-white dark:hover:bg-ink-900",
         className
       )}
     >

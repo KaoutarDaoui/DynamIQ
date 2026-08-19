@@ -142,7 +142,7 @@ export default function FloorView() {
                     <div className="flex justify-between"><dt className="text-ink-400">Predicted</dt><dd>{r.predictedTempC}°C</dd></div>
                     <div className="flex justify-between"><dt className="text-ink-400">Target</dt><dd>{r.targetTempC}°C</dd></div>
                     <div className="flex justify-between"><dt className="text-ink-400">Δ</dt><dd className={clsx("font-medium", visual.text)}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}°C</dd></div>
-                    <div className="flex justify-between"><dt className="text-ink-400">AC unit</dt><dd className="font-mono">{r.hvac.unitId}</dd></div>
+                    <div className="flex justify-between"><dt className="text-ink-400">AC unit</dt><dd>{r.hvac.unitId}</dd></div>
                     <div className="flex justify-between"><dt className="text-ink-400">Energy (24h)</dt><dd>{energy.toFixed(1)} kWh</dd></div>
                   </dl>
                 </div>

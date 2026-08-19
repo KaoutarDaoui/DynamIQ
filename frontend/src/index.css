@@ -71,6 +71,10 @@ body {
   box-sizing: border-box;
 }
 
+svg text {
+  font-family: var(--font-sans);
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

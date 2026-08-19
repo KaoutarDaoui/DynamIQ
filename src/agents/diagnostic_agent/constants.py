@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_DIAGNOSTIC_MODEL = os.getenv("GROQ_DIAGNOSTIC_MODEL", "llama-3.3-70b-versatile")
+GROQ_DIAGNOSTIC_MODEL = os.getenv("GROQ_DIAGNOSTIC_MODEL", "qwen/qwen3.6-27b")
 GROQ_DIAGNOSTIC_MAX_TOKENS = 4000
 
 GROQ_REASONING_EFFORT = {

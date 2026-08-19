@@ -225,12 +225,14 @@ export interface LiveAnomalyOverview {
   cause: string | null;
   causeConfidence: string | null;
   supervisorDecision: string | null;
+  proposedAction: string | null;
 }
 
 export interface LiveDiagnosisSummary {
   id: number;
   cause: string;
   causeConfidence: string;
+  confidenceSignals?: string[];
   evidence: string[];
   energyWastedKwh: number;
   energyWastedBasis: string;
@@ -287,6 +289,39 @@ export interface LiveAlert {
   causeConfidence: string;
   message: string;
   sentAt: string;
+}
+
+export interface AuditLogToolCall {
+  tool: string;
+  args: Record<string, unknown>;
+  result: Record<string, unknown>;
+  resultSummary?: string;
+  timestamp: string;
+}
+
+export interface AuditLog {
+  id: number;
+  anomalyId: number;
+  roomId: string;
+  invokedAt: string;
+  toolCalls: AuditLogToolCall[];
+  modelOutput: Record<string, unknown>;
+  supervisorDecision: Record<string, unknown>;
+  diagnosisId: number | null;
+  createdAt: string;
+  actionDecision: ActionDecision | null;
+}
+
+export interface ActionDecision {
+  id: number;
+  anomalyId: number;
+  diagnosisId: number | null;
+  roomId: string;
+  decision: string;
+  actionType: string | null;
+  deltaC: number | null;
+  decidedBy: string | null;
+  decidedAt: string;
 }
 
 export interface DailyEnergyPoint {

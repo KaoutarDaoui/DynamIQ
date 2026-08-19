@@ -183,6 +183,7 @@ class AnomalyOverview(BaseModel):
     cause: str | None
     cause_confidence: str | None
     supervisor_decision: str | None
+    proposed_action: str | None
 
 
 @app.get("/buildings/{building_id}/anomalies", response_model=list[AnomalyOverview])
@@ -205,6 +206,7 @@ def get_anomalies(building_id: str) -> list[AnomalyOverview]:
             cause=r.cause,
             cause_confidence=r.cause_confidence,
             supervisor_decision=r.supervisor_decision,
+            proposed_action=r.proposed_action,
         )
         for r in rows
     ]

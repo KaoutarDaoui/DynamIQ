@@ -21,6 +21,7 @@ class MpcInputs:
     c_j_per_k: float
     capacity_kw: float
     cop_cooling: float
+    setpoint_offset_c: float = 0.0
 
 @dataclass(frozen=True)
 class MpcSolution:
@@ -46,6 +47,8 @@ def solve(inputs: MpcInputs) -> MpcSolution:
     slack_upper = cp.Variable(n, nonneg=True)
     t_min = np.where(inputs.occupied, constants.T_MIN_OCCUPIED_C, constants.T_MIN_UNOCCUPIED_C)
     t_max = np.where(inputs.occupied, constants.T_MAX_OCCUPIED_C, constants.T_MAX_UNOCCUPIED_C)
+    if inputs.setpoint_offset_c != 0.0:
+        t_max = t_max + inputs.setpoint_offset_c
     constraints = [t[0] == inputs.t_current_c]
     for k in range(n):
         constraints.append(t[k + 1] == a * t[k] + (1.0 - a) * (inputs.t_ext_c[k] + inputs.r_k_per_w * (inputs.q_solar_w[k] + inputs.q_occ_w[k] + q_hvac_w[k])))

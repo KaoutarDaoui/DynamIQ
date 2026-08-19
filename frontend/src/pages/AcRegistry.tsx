@@ -126,7 +126,7 @@ export default function AcRegistry() {
                   </Link>
                 </td>
                 <td className="px-5 py-3 text-ink-600">{floors.find((f) => f.id === r.floorId)?.label}</td>
-                <td className="px-5 py-3 font-mono text-[13px]">{r.hvac.unitId}</td>
+                <td className="px-5 py-3 text-[13px]">{r.hvac.unitId}</td>
                 <td className="px-5 py-3 capitalize text-ink-600">{r.hvac.type.replace("_", " ")}</td>
                 <td className="px-5 py-3 text-ink-600">{r.hvac.capacityKw} kW</td>
                 <td className="px-5 py-3"><StatusBadge status={r.hvac.status} /></td>

@@ -7,6 +7,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0
 export const DEFAULT_ORG_ID = "ORG_AMAZON";
 
 const THERMAL_API_BASE = import.meta.env.VITE_THERMAL_API_URL ?? "http://localhost:8001";
+const DIAGNOSTIC_API_BASE = import.meta.env.VITE_DIAGNOSTIC_API_URL ?? "http://localhost:8002";
 
 // Identity map: every building_id (e.g. "djezzy-hq") is passed through
 // unchanged to the API — the `BUILDING_ID_MAP[buildingId] ?? buildingId`
@@ -310,6 +311,7 @@ interface AnomalyOverviewApiResponse {
   cause: string | null;
   cause_confidence: string | null;
   supervisor_decision: string | null;
+  proposed_action: string | null;
 }
 
 export async function fetchAnomalies(buildingId: string, signal?: AbortSignal): Promise<LiveAnomalyOverview[]> {
@@ -334,6 +336,7 @@ export async function fetchAnomalies(buildingId: string, signal?: AbortSignal): 
     cause: a.cause,
     causeConfidence: a.cause_confidence,
     supervisorDecision: a.supervisor_decision,
+    proposedAction: a.proposed_action,
   }));
 }
 
@@ -355,6 +358,7 @@ interface AnomalyDetailApiResponse {
     id: number;
     cause: string;
     cause_confidence: string;
+    confidence_signals?: string[];
     evidence: string[];
     energy_wasted_kwh: number;
     energy_wasted_basis: string;
@@ -391,6 +395,7 @@ export async function fetchAnomalyDetail(buildingId: string, anomalyId: number, 
           id: d.diagnosis.id,
           cause: d.diagnosis.cause,
           causeConfidence: d.diagnosis.cause_confidence,
+          confidenceSignals: d.diagnosis.confidence_signals,
           evidence: d.diagnosis.evidence,
           energyWastedKwh: d.diagnosis.energy_wasted_kwh,
           energyWastedBasis: d.diagnosis.energy_wasted_basis,
@@ -480,6 +485,77 @@ export async function fetchAlerts(buildingId: string, signal?: AbortSignal): Pro
   }));
 }
 
+interface ToolCallApiResponse {
+  tool: string;
+  args: Record<string, unknown>;
+  result: Record<string, unknown>;
+  result_summary?: string;
+  timestamp: string;
+}
+
+interface AuditLogApiResponse {
+  id: number;
+  anomaly_id: number;
+  room_id: string;
+  invoked_at: string;
+  tool_calls: ToolCallApiResponse[];
+  model_output: Record<string, unknown>;
+  supervisor_decision: Record<string, unknown>;
+  diagnosis_id: number | null;
+  created_at: string;
+  action_decision: ActionDecisionApiResponse | null;
+}
+
+export interface AuditLogToolCall {
+  tool: string;
+  args: Record<string, unknown>;
+  result: Record<string, unknown>;
+  resultSummary?: string;
+  timestamp: string;
+}
+
+export interface AuditLog {
+  id: number;
+  anomalyId: number;
+  roomId: string;
+  invokedAt: string;
+  toolCalls: AuditLogToolCall[];
+  modelOutput: Record<string, unknown>;
+  supervisorDecision: Record<string, unknown>;
+  diagnosisId: number | null;
+  createdAt: string;
+  actionDecision: ActionDecision | null;
+}
+
+export async function fetchAuditLog(anomalyId: number, signal?: AbortSignal): Promise<AuditLog | null> {
+  try {
+    const res = await fetch(`${DIAGNOSTIC_API_BASE}/anomalies/${anomalyId}/audit`, { signal });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new ThermalApiError(`Diagnostic Agent API returned ${res.status}`);
+    const d: AuditLogApiResponse = await res.json();
+    return {
+      id: d.id,
+      anomalyId: d.anomaly_id,
+      roomId: d.room_id,
+      invokedAt: d.invoked_at,
+      toolCalls: d.tool_calls.map((tc) => ({
+        tool: tc.tool,
+        args: tc.args,
+        result: tc.result,
+        resultSummary: tc.result_summary,
+        timestamp: tc.timestamp,
+      })),
+      modelOutput: d.model_output,
+      supervisorDecision: d.supervisor_decision,
+      diagnosisId: d.diagnosis_id,
+      createdAt: d.created_at,
+      actionDecision: d.action_decision ? mapActionDecision(d.action_decision) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 interface ReportsSummaryApiResponse {
   window_days: number;
   total_predicted_kwh: number;
@@ -521,4 +597,65 @@ export async function fetchReportsSummary(buildingId: string, days = 30, signal?
       readingAt: r.reading_at,
     })),
   };
+}
+
+interface ActionDecisionApiResponse {
+  id: number;
+  anomaly_id: number;
+  diagnosis_id: number | null;
+  room_id: string;
+  decision: string;
+  action_type: string | null;
+  delta_c: number | null;
+  decided_by: string | null;
+  decided_at: string;
+}
+
+export interface ActionDecision {
+  id: number;
+  anomalyId: number;
+  diagnosisId: number | null;
+  roomId: string;
+  decision: string;
+  actionType: string | null;
+  deltaC: number | null;
+  decidedBy: string | null;
+  decidedAt: string;
+}
+
+function mapActionDecision(d: ActionDecisionApiResponse): ActionDecision {
+  return {
+    id: d.id,
+    anomalyId: d.anomaly_id,
+    diagnosisId: d.diagnosis_id,
+    roomId: d.room_id,
+    decision: d.decision,
+    actionType: d.action_type,
+    deltaC: d.delta_c,
+    decidedBy: d.decided_by,
+    decidedAt: d.decided_at,
+  };
+}
+
+export async function fetchActionDecision(anomalyId: number, signal?: AbortSignal): Promise<ActionDecision | null> {
+  try {
+    const res = await fetch(`${DIAGNOSTIC_API_BASE}/anomalies/${anomalyId}/action-decision`, { signal });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new ThermalApiError(`Diagnostic Agent API returned ${res.status}`);
+    const d: ActionDecisionApiResponse = await res.json();
+    return mapActionDecision(d);
+  } catch {
+    return null;
+  }
+}
+
+export async function recordActionDecision(anomalyId: number, decision: "applied" | "rejected", decidedBy?: string): Promise<ActionDecision> {
+  const res = await fetch(`${DIAGNOSTIC_API_BASE}/anomalies/${anomalyId}/action-decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision, decided_by: decidedBy ?? "facility_manager" }),
+  });
+  if (!res.ok) throw new ThermalApiError(`Diagnostic Agent API returned ${res.status}`);
+  const d: ActionDecisionApiResponse = await res.json();
+  return mapActionDecision(d);
 }

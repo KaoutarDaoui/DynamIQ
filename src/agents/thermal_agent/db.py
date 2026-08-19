@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Any
 import numpy as np
 from dotenv import load_dotenv
-from sqlalchemy import Engine, create_engine, func
+from sqlalchemy import Engine, create_engine, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import registry as orm_registry
 from sqlmodel import Column, Field, Session, SQLModel, select
@@ -404,6 +404,11 @@ class AnomalyOverviewRecord:
     cause: str | None
     cause_confidence: str | None
     supervisor_decision: str | None
+    proposed_action: str | None
+
+def _action_type(proposed: Any) -> str | None:
+    return proposed.get("type") if isinstance(proposed, dict) else None
+
 
 def fetch_anomalies_overview(engine: Engine, building_id: str) -> list[AnomalyOverviewRecord]:
     with Session(engine) as session:
@@ -432,6 +437,7 @@ def fetch_anomalies_overview(engine: Engine, building_id: str) -> list[AnomalyOv
             cause=latest_diagnosis[a.id].cause if a.id in latest_diagnosis else None,
             cause_confidence=latest_diagnosis[a.id].cause_confidence if a.id in latest_diagnosis else None,
             supervisor_decision=latest_diagnosis[a.id].supervisor_decision if a.id in latest_diagnosis else None,
+            proposed_action=_action_type(latest_diagnosis[a.id].proposed_action) if a.id in latest_diagnosis else None,
         )
         for a, room_label, level in rows
     ]
@@ -614,3 +620,33 @@ def fetch_reports_summary(engine: Engine, building_id: str, days: int) -> Report
         bucket[1] += gco2
     daily = [DailyEnergyRecord(date=k, kwh=v[0], gco2=v[1]) for k, v in sorted(daily_map.items())]
     return ReportsSummaryRecord(total_kwh=total_kwh, total_gco2=total_gco2, daily=daily, room_readings=room_readings)
+
+
+def fetch_latest_applied_action_decision(engine: Engine, room_id: str) -> dict[str, Any] | None:
+    """Latest 'applied' action decision for a room (from diagnostic_agent's
+    action_decisions table -- both agents share the same database)."""
+    with Session(engine) as session:
+        row = session.exec(
+            text(
+                """
+                SELECT id, anomaly_id, diagnosis_id, room_id, decision, action_type, delta_c, decided_by, decided_at
+                FROM action_decisions
+                WHERE room_id = :room_id AND decision = 'applied'
+                ORDER BY decided_at DESC
+                LIMIT 1
+                """
+            ).bindparams(room_id=room_id)
+        ).first()
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "anomaly_id": row.anomaly_id,
+        "diagnosis_id": row.diagnosis_id,
+        "room_id": row.room_id,
+        "decision": row.decision,
+        "action_type": row.action_type,
+        "delta_c": row.delta_c,
+        "decided_by": row.decided_by,
+        "decided_at": row.decided_at,
+    }
