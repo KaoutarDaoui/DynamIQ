@@ -6,7 +6,7 @@ import smtplib
 import httpx
 import pytest
 
-from orchestration.channels import EmailChannel, LogChannel, WebhookChannel, dispatch
+from orchestration.channels import EmailChannel, EmailJsChannel, LogChannel, WebhookChannel, dispatch
 
 
 class TestLogChannel:
@@ -95,6 +95,41 @@ class TestEmailChannel:
         assert sent["message"]["To"] == "facility@example.com"
         assert "room-1" in sent["message"].get_content()
 
+    def test_port_587_uses_starttls_not_ssl(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sent: dict = {}
+
+        class FakeSmtp:
+            def __init__(self, host, port, timeout=None):
+                sent["host"] = host
+                sent["port"] = port
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def starttls(self):
+                sent["starttls_called"] = True
+
+            def login(self, user, password):
+                sent["user"] = user
+
+            def send_message(self, message):
+                sent["message"] = message
+
+        monkeypatch.setattr(smtplib, "SMTP", FakeSmtp)
+
+        def unexpected_ssl(*args, **kwargs):
+            raise AssertionError("port 587 should use plain SMTP + starttls, not SMTP_SSL")
+
+        monkeypatch.setattr(smtplib, "SMTP_SSL", unexpected_ssl)
+
+        channel = EmailChannel("smtp-relay.brevo.com", 587, "bot@example.com", "smtp-key", "facility@example.com")
+        assert channel.send({"room_id": "room-1"}) is True
+        assert sent["starttls_called"] is True
+        assert sent["port"] == 587
+
     def test_smtp_failure_returns_false_not_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FailingSmtp:
             def __init__(self, host, port, timeout=None):
@@ -141,6 +176,58 @@ class TestEmailChannel:
 
         monkeypatch.setattr(smtplib, "SMTP_SSL", unexpected_smtp)
         channel = EmailChannel("smtp.gmail.com", 465, "bot@example.com", "app-password", "")
+        assert channel.send({"room_id": "room-1"}) is False
+
+
+class TestEmailJsChannel:
+    def test_success_returns_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sent = {}
+
+        def fake_post(url, json, timeout):
+            sent["url"] = url
+            sent["json"] = json
+
+            class Resp:
+                status_code = 200
+
+            return Resp()
+
+        monkeypatch.setattr(httpx, "post", fake_post)
+        channel = EmailJsChannel("service_1", "template_1", "pub_key", "priv_key", "fallback@example.com")
+        assert channel.send({"room_id": "room-1", "alert_email": "real-org@example.com"}) is True
+        assert sent["url"] == "https://api.emailjs.com/api/v1.0/email/send"
+        assert sent["json"]["service_id"] == "service_1"
+        assert sent["json"]["template_id"] == "template_1"
+        assert sent["json"]["user_id"] == "pub_key"
+        assert sent["json"]["accessToken"] == "priv_key"
+        assert sent["json"]["template_params"]["to_email"] == "real-org@example.com"
+        assert "room-1" in sent["json"]["template_params"]["subject"]
+
+    def test_http_error_status_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_post(url, json, timeout):
+            class Resp:
+                status_code = 401
+
+            return Resp()
+
+        monkeypatch.setattr(httpx, "post", fake_post)
+        channel = EmailJsChannel("service_1", "template_1", "pub_key", "priv_key", "fallback@example.com")
+        assert channel.send({"room_id": "room-1"}) is False
+
+    def test_network_failure_returns_false_not_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_post(url, json, timeout):
+            raise httpx.ConnectError("no route to host")
+
+        monkeypatch.setattr(httpx, "post", fake_post)
+        channel = EmailJsChannel("service_1", "template_1", "pub_key", "priv_key", "fallback@example.com")
+        assert channel.send({"room_id": "room-1"}) is False
+
+    def test_no_recipient_available_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unexpected_post(*args, **kwargs):
+            raise AssertionError("should not call the EmailJS API with no recipient")
+
+        monkeypatch.setattr(httpx, "post", unexpected_post)
+        channel = EmailJsChannel("service_1", "template_1", "pub_key", "priv_key", "")
         assert channel.send({"room_id": "room-1"}) is False
 
 

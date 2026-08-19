@@ -50,6 +50,13 @@ class OrganisationsTable(SupervisorBase, table=True):
     email: str | None = None
 
 
+class UsersTable(SupervisorBase, table=True):
+    __tablename__ = "users"
+    user_id: str = Field(primary_key=True)
+    email: str
+    org_id: str | None = None
+
+
 class AnomaliesTable(SupervisorBase, table=True):
     __tablename__ = "anomalies"
     id: int | None = Field(default=None, primary_key=True)
@@ -86,6 +93,16 @@ def fetch_org_alert_email(engine: Engine, building_id: str) -> str | None:
             .where(BuildingsTable.building_id == building_id)
         ).first()
     return result
+
+
+def fetch_org_user_emails(engine: Engine, building_id: str) -> list[str]:
+    with Session(engine) as session:
+        rows = session.exec(
+            select(UsersTable.email)
+            .join(BuildingsTable, BuildingsTable.org_id == UsersTable.org_id)
+            .where(BuildingsTable.building_id == building_id)
+        ).all()
+    return list(rows)
 
 
 def fetch_last_calibration_time(engine: Engine, building_id: str) -> datetime | None:
