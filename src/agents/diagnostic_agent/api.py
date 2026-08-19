@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agents.logging_config import configure_agent_logging
-from . import diagnose
+from . import constants, diagnose
 from .db import ensure_action_decisions_table, fetch_anomaly, fetch_audit_log, fetch_action_decision, insert_action_decision, get_engine
 
 configure_agent_logging("agents.diagnostic_agent", "diagnostic_agent.log")
@@ -97,7 +97,7 @@ class AuditLogOut(BaseModel):
 def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        model=os.getenv("GROQ_DIAGNOSTIC_MODEL", "llama-3.3-70b-versatile"),
+        model=constants.GROQ_DIAGNOSTIC_MODEL,
         api_key_configured=bool(os.getenv("DIAGNOSTIC_GROQ_API_KEY")),
     )
 

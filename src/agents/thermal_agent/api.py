@@ -8,7 +8,7 @@ from pydantic import BaseModel
 import logging
 from agents.logging_config import configure_agent_logging
 from . import constants
-from .db import fetch_alerts_overview, fetch_anomaly_detail, fetch_anomalies_overview, fetch_diagnoses_overview, fetch_latest_mpc_schedule, fetch_mpc_rooms, fetch_org_alert_email, fetch_reports_summary, fetch_room, fetch_thermal_overview, get_engine, update_org_alert_email
+from .db import fetch_alerts_overview, fetch_anomaly_detail, fetch_anomalies_overview, fetch_diagnoses_overview, fetch_floor_heatmap, fetch_latest_mpc_schedule, fetch_mpc_rooms, fetch_org_alert_email, fetch_reports_summary, fetch_room, fetch_thermal_overview, get_engine, update_org_alert_email
 
 configure_agent_logging("agents.thermal_agent", "thermal_agent.log")
 
@@ -414,6 +414,37 @@ def get_reports_summary(building_id: str, days: int = 30) -> ReportsSummary:
 
 class AlertEmailSettings(BaseModel):
     email: str | None
+
+
+class HeatmapRoom(BaseModel):
+    room_id: str
+    room_label: str
+    floor_id: str
+    floor_level: int
+    area_m2: float
+    is_instrumented: bool
+    latest_temp_c: float | None
+    setpoint_c: float | None
+    predicted_temp_c: float | None
+    energy_kwh_24h: float
+    carbon_gco2_24h: float
+    has_open_anomaly: bool
+
+
+@app.get("/buildings/{building_id}/floors/{floor_level}/heatmap", response_model=list[HeatmapRoom])
+def get_floor_heatmap(building_id: str, floor_level: int) -> list[HeatmapRoom]:
+    rows = fetch_floor_heatmap(get_engine(), building_id, floor_level)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No rooms found for building {building_id!r} floor {floor_level}")
+    return [
+        HeatmapRoom(
+            room_id=r.room_id, room_label=r.room_label, floor_id=r.floor_id, floor_level=r.floor_level,
+            area_m2=r.area_m2, is_instrumented=r.is_instrumented, latest_temp_c=r.latest_temp_c,
+            setpoint_c=r.setpoint_c, predicted_temp_c=r.predicted_temp_c, energy_kwh_24h=r.energy_kwh_24h,
+            carbon_gco2_24h=r.carbon_gco2_24h, has_open_anomaly=r.has_open_anomaly,
+        )
+        for r in rows
+    ]
 
 
 @app.get("/buildings/{building_id}/settings/alert-email", response_model=AlertEmailSettings)

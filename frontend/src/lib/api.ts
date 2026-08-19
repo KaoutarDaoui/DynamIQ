@@ -1,5 +1,5 @@
 import type { AgentStatus, Building, Role } from "../types";
-import type { LiveAlert, LiveAnomalyDetail, LiveAnomalyOverview, LiveDiagnosisOverview, MpcRoomSummary, MpcSchedule, ReportsSummary, ThermalModelRoom } from "../types";
+import type { HeatmapRoom, LiveAlert, LiveAnomalyDetail, LiveAnomalyOverview, LiveDiagnosisOverview, MpcRoomSummary, MpcSchedule, ReportsSummary, ThermalModelRoom } from "../types";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8010";
 
@@ -269,6 +269,43 @@ export async function fetchThermalModels(buildingId: string, signal?: AbortSigna
     dataWindowStart: r.data_window_start,
     dataWindowEnd: r.data_window_end,
     calibratedAt: r.calibrated_at,
+  }));
+}
+
+interface HeatmapRoomApiResponse {
+  room_id: string;
+  room_label: string;
+  floor_id: string;
+  floor_level: number;
+  area_m2: number;
+  is_instrumented: boolean;
+  latest_temp_c: number | null;
+  setpoint_c: number | null;
+  predicted_temp_c: number | null;
+  energy_kwh_24h: number;
+  carbon_gco2_24h: number;
+  has_open_anomaly: boolean;
+}
+
+export async function fetchFloorHeatmap(buildingId: string, floorLevel: number, signal?: AbortSignal): Promise<HeatmapRoom[]> {
+  const realBuildingId = BUILDING_ID_MAP[buildingId] ?? buildingId;
+  const res = await _get(`/buildings/${encodeURIComponent(realBuildingId)}/floors/${floorLevel}/heatmap`, signal);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new ThermalApiError(`Thermal Agent API returned ${res.status}`);
+  const data: HeatmapRoomApiResponse[] = await res.json();
+  return data.map((r) => ({
+    roomId: r.room_id,
+    roomLabel: r.room_label,
+    floorId: r.floor_id,
+    floorLevel: r.floor_level,
+    areaM2: r.area_m2,
+    isInstrumented: r.is_instrumented,
+    latestTempC: r.latest_temp_c,
+    setpointC: r.setpoint_c,
+    predictedTempC: r.predicted_temp_c,
+    energyKwh24h: r.energy_kwh_24h,
+    carbonGco2_24h: r.carbon_gco2_24h,
+    hasOpenAnomaly: r.has_open_anomaly,
   }));
 }
 

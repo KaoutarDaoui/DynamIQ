@@ -322,7 +322,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-2 text-[13px] text-ink-700 dark:text-ink-200">
-                    <Gauge size={15} className="text-primary-500" /> Calibrated models
+                    <Gauge size={15} className="text-primary-500" /> Rooms instrumented & calibrated
                   </span>
                   <span className="text-[12px] font-medium text-ink-900 dark:text-white">{loading ? "—" : `${calibratedCount}/${instrumentedCount}`}</span>
                 </div>
@@ -345,7 +345,7 @@ export default function Dashboard() {
           </Card>
 
           <Card>
-            <CardHeader title="Comfort tracking" subtitle="Rooms by deviation from the comfort band midpoint" />
+            <CardHeader title="Comfort tracking" subtitle="Rooms by deviation from the comfort band midpoint (23°C)" />
             <div className="px-5 pb-5">
               {(report?.comfortLeaderboard ?? []).slice(0, 4).map((r, i) => (
                 <div key={r.roomId} className="flex items-center justify-between py-1.5 text-[13px]">

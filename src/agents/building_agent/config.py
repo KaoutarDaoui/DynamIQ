@@ -16,7 +16,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must be defined in .env for the Building Agent")
 
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, pool_size=3, max_overflow=2, pool_pre_ping=True, echo=False)
 
 
 def get_session() -> Iterator[Session]:

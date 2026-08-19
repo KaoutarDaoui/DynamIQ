@@ -182,7 +182,7 @@ def get_engine() -> Engine:
     database_url = os.getenv('DATABASE_URL')
     if not database_url:
         raise RuntimeError('DATABASE_URL must be set (see .env.example)')
-    return create_engine(database_url)
+    return create_engine(database_url, pool_size=3, max_overflow=2, pool_pre_ping=True)
 
 def fetch_room(engine: Engine, room_id: str) -> RoomRecord:
     with Session(engine) as session:
@@ -649,6 +649,72 @@ def fetch_reports_summary(engine: Engine, building_id: str, days: int) -> Report
         bucket[1] += gco2
     daily = [DailyEnergyRecord(date=k, kwh=v[0], gco2=v[1]) for k, v in sorted(daily_map.items())]
     return ReportsSummaryRecord(total_kwh=total_kwh, total_gco2=total_gco2, daily=daily, room_readings=room_readings)
+
+
+@dataclass(frozen=True)
+class HeatmapRoomRecord:
+    room_id: str
+    room_label: str
+    floor_id: str
+    floor_level: int
+    area_m2: float
+    is_instrumented: bool
+    latest_temp_c: float | None
+    setpoint_c: float | None
+    predicted_temp_c: float | None
+    energy_kwh_24h: float
+    carbon_gco2_24h: float
+    has_open_anomaly: bool
+
+def fetch_floor_heatmap(engine: Engine, building_id: str, floor_level: int, days: int = 1) -> list[HeatmapRoomRecord]:
+    window_start = datetime.now(timezone.utc) - timedelta(days=days)
+    with Session(engine) as session:
+        rooms = session.exec(
+            select(RoomsTable, FloorsTable.level)
+            .join(FloorsTable, FloorsTable.floor_id == RoomsTable.floor_id)
+            .where(FloorsTable.building_id == building_id, FloorsTable.level == floor_level)
+            .order_by(RoomsTable.room_label.asc())
+        ).all()
+        room_ids = [r.room_id for r, _ in rooms]
+        if not room_ids:
+            return []
+        anomalies = session.exec(
+            select(AnomaliesTable.room_id)
+            .where(AnomaliesTable.room_id.in_(room_ids), AnomaliesTable.closed_at.is_(None))
+        ).all()
+        open_rooms = set(a for a in anomalies)
+        energy_rows = session.exec(
+            select(MpcSchedulesTable.room_id, func.sum(MpcSchedulesTable.predicted_kwh), func.sum(MpcSchedulesTable.predicted_gco2))
+            .where(MpcSchedulesTable.room_id.in_(room_ids), MpcSchedulesTable.slot_ts >= window_start)
+            .group_by(MpcSchedulesTable.room_id)
+        ).all()
+        energy_map = {room_id: (float(kwh or 0.0), float(gco2 or 0.0)) for room_id, kwh, gco2 in energy_rows}
+        readings_map: dict[str, SensorReadingsTable] = {}
+        setpoint_map: dict[str, MpcSchedulesTable] = {}
+        for room_id in room_ids:
+            latest_reading = session.exec(
+                select(SensorReadingsTable).where(SensorReadingsTable.room_id == room_id).order_by(SensorReadingsTable.ts.desc()).limit(1)
+            ).first()
+            if latest_reading is not None:
+                readings_map[room_id] = latest_reading
+            latest_slot = session.exec(
+                select(MpcSchedulesTable).where(MpcSchedulesTable.room_id == room_id).order_by(MpcSchedulesTable.slot_ts.desc()).limit(1)
+            ).first()
+            if latest_slot is not None:
+                setpoint_map[room_id] = latest_slot
+    return [
+        HeatmapRoomRecord(
+            room_id=r.room_id, room_label=r.room_label, floor_id=r.floor_id, floor_level=level,
+            area_m2=r.area_m2, is_instrumented=r.sensor_id is not None,
+            latest_temp_c=readings_map[r.room_id].temp_measured_c if r.room_id in readings_map else None,
+            setpoint_c=setpoint_map[r.room_id].setpoint_c if r.room_id in setpoint_map else None,
+            predicted_temp_c=setpoint_map[r.room_id].predicted_temp_c if r.room_id in setpoint_map else None,
+            energy_kwh_24h=energy_map.get(r.room_id, (0.0, 0.0))[0],
+            carbon_gco2_24h=energy_map.get(r.room_id, (0.0, 0.0))[1],
+            has_open_anomaly=r.room_id in open_rooms,
+        )
+        for r, level in rooms
+    ]
 
 
 def fetch_latest_applied_action_decision(engine: Engine, room_id: str) -> dict[str, Any] | None:

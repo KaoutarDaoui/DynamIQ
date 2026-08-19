@@ -350,3 +350,18 @@ export interface ReportsSummary {
   daily: DailyEnergyPoint[];
   comfortLeaderboard: ComfortLeaderboardEntry[];
 }
+
+export interface HeatmapRoom {
+  roomId: string;
+  roomLabel: string;
+  floorId: string;
+  floorLevel: number;
+  areaM2: number;
+  isInstrumented: boolean;
+  latestTempC: number | null;
+  setpointC: number | null;
+  predictedTempC: number | null;
+  energyKwh24h: number;
+  carbonGco2_24h: number;
+  hasOpenAnomaly: boolean;
+}
