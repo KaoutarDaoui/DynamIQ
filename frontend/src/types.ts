@@ -289,6 +289,7 @@ export interface LiveAlert {
   causeConfidence: string;
   message: string;
   sentAt: string;
+  energyWastedKwh: number;
 }
 
 export interface AuditLogToolCall {

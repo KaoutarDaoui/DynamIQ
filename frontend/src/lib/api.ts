@@ -499,6 +499,7 @@ interface AlertApiResponse {
   cause_confidence: string;
   message: string;
   sent_at: string;
+  energy_wasted_kwh: number;
 }
 
 export async function fetchAlerts(buildingId: string, signal?: AbortSignal): Promise<LiveAlert[]> {
@@ -520,6 +521,7 @@ export async function fetchAlerts(buildingId: string, signal?: AbortSignal): Pro
     causeConfidence: a.cause_confidence,
     message: a.message,
     sentAt: a.sent_at,
+    energyWastedKwh: a.energy_wasted_kwh,
   }));
 }
 

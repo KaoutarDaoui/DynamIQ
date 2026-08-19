@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useLocation } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, ChevronLeft, Clock, Wrench, Shield, Zap, LayoutGrid, TrendingUp, ActivitySquare, AlertCircle, ExternalLink, Thermometer, Gauge, Timer, MapPin, Info } from "lucide-react";
 import { fetchAnomalyDetail, fetchAuditLog, fetchActionDecision, recordActionDecision, ThermalApiError } from "../lib/api";
 import type { LiveAnomalyDetail, LiveDiagnosisSummary, AuditLog, AuditLogToolCall, ActionDecision } from "../types";
@@ -160,16 +160,28 @@ function getImpactDetails(diagnosis: LiveDiagnosisSummary): string[] {
   return impacts;
 }
 
-function getExpectedImpact(diagnosis: LiveDiagnosisSummary, deltaC: number | undefined): string {
-  const basis = diagnosis.energyWastedBasis;
-  if (basis === "mpc_counterfactual" && typeof diagnosis.energyWastedKwh === "number") {
-    const delta = typeof deltaC === "number" ? `${deltaC > 0 ? "+" : ""}${deltaC.toFixed(1)}°C` : "the proposed setpoint change";
-    return `Correcting the setpoint by ${delta} targets the ${diagnosis.energyWastedKwh.toFixed(1)} kWh wasted versus MPC-optimal operation, reducing future energy waste and restoring comfort.`;
+function getExpectedImpact(diagnosis: LiveDiagnosisSummary, deltaC: number | undefined, actionType: string): string {
+  if (actionType === "setpoint_change") {
+    const basis = diagnosis.energyWastedBasis;
+    if (basis === "mpc_counterfactual" && typeof diagnosis.energyWastedKwh === "number") {
+      const delta = typeof deltaC === "number" ? `${deltaC > 0 ? "+" : ""}${deltaC.toFixed(1)}°C` : "the proposed setpoint change";
+      return `Correcting the setpoint by ${delta} targets the ${diagnosis.energyWastedKwh.toFixed(1)} kWh wasted versus MPC-optimal operation, reducing future energy waste and restoring comfort.`;
+    }
+    if (basis === "no_sensor_data" || basis === "no_mpc_counterfactual") {
+      return "Energy waste could not be quantified for this anomaly (no usable sensor / MPC baseline data); the setpoint correction targets the observed deviation.";
+    }
+    return "Applying the setpoint correction reduces the residual deviation and improves occupant comfort.";
   }
-  if (basis === "no_sensor_data" || basis === "no_mpc_counterfactual") {
-    return "Energy waste could not be quantified for this anomaly (no usable sensor / MPC baseline data); the setpoint correction targets the observed deviation.";
+  if (actionType === "schedule_correction") {
+    return "Correcting the occupancy schedule prevents HVAC from conditioning the room when it is unoccupied, avoiding the wasted cycles that caused this anomaly.";
   }
-  return "Applying the setpoint correction reduces the residual deviation and improves occupant comfort.";
+  if (actionType === "inspection_required") {
+    return "No automatic correction is proposed. A human inspection is needed to confirm the root cause and decide the fix.";
+  }
+  if (actionType === "shutdown" || actionType === "lockout") {
+    return "This anomaly exceeds safe autonomous intervention limits — the affected equipment is flagged for manual shutdown/inspection by a human operator.";
+  }
+  return "No action is required — the anomaly is already resolving or outside safe intervention bounds.";
 }
 
 function EvidenceTimeline({ evidence, auditLog }: { evidence: string[]; auditLog: AuditLog | null }) {
@@ -475,6 +487,8 @@ function EvidenceTimeline({ evidence, auditLog }: { evidence: string[]; auditLog
 
 export default function DiagnosisDetail() {
   const { buildingId = "esi-algiers", anomalyId = "" } = useParams();
+  const location = useLocation();
+  const fromDiagnoses = (location.state as { from?: string } | null)?.from === "diagnoses";
   const [anomaly, setAnomaly] = useState<LiveAnomalyDetail | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -554,7 +568,7 @@ export default function DiagnosisDetail() {
       <nav className="mb-4 flex items-center gap-2 text-[13px] text-ink-400" aria-label="Breadcrumb">
         <Link to={`/b/${buildingId}`} className="hover:text-primary-600">Buildings</Link>
         <ChevronLeft size={14} />
-        <Link to={`/b/${buildingId}/anomalies`} className="hover:text-primary-600">Anomalies</Link>
+        <Link to={fromDiagnoses ? `/b/${buildingId}/diagnoses` : `/b/${buildingId}/anomalies`} className="hover:text-primary-600">{fromDiagnoses ? "Diagnoses" : "Anomalies"}</Link>
         <ChevronLeft size={14} />
         <span className="text-ink-600 dark:text-ink-300">{anomaly.roomLabel}</span>
       </nav>
@@ -750,7 +764,7 @@ export default function DiagnosisDetail() {
                     </p>
                   </div>
                 </div>
-                {typeof deltaC === "number" && (
+                {(typeof deltaC === "number" && actionType === "setpoint_change") && (
                   <div className="mb-4 p-3 rounded-lg bg-white/50 dark:bg-ink-800/50">
                     <p className="text-[12px] font-medium uppercase tracking-wide text-ink-400">Setpoint Correction</p>
                     <p className="mt-1 text-[20px] font-semibold text-primary-700 dark:text-primary-300">
@@ -761,7 +775,7 @@ export default function DiagnosisDetail() {
                 <div className="mb-4 p-3 rounded-lg bg-white/50 dark:bg-ink-800/50">
                   <p className="text-[12px] font-medium uppercase tracking-wide text-ink-400">Expected Impact</p>
                   <p className="mt-1 text-[13px] text-ink-700 dark:text-ink-200">
-                    {getExpectedImpact(diagnosis, deltaC)}
+                    {getExpectedImpact(diagnosis, deltaC, actionType)}
                   </p>
                 </div>
                 <div className="flex gap-3">

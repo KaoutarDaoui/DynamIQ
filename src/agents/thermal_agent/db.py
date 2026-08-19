@@ -572,11 +572,12 @@ class AlertOverviewRecord:
     cause_confidence: str
     message: str
     sent_at: datetime
+    energy_wasted_kwh: float
 
 def fetch_alerts_overview(engine: Engine, building_id: str) -> list[AlertOverviewRecord]:
     with Session(engine) as session:
         rows = session.exec(
-            select(AlertsTable, DiagnosesTable.anomaly_id, DiagnosesTable.cause, DiagnosesTable.cause_confidence, RoomsTable.room_label, FloorsTable.level)
+            select(AlertsTable, DiagnosesTable.anomaly_id, DiagnosesTable.cause, DiagnosesTable.cause_confidence, DiagnosesTable.energy_wasted_kwh, RoomsTable.room_label, FloorsTable.level)
             .join(DiagnosesTable, DiagnosesTable.id == AlertsTable.diagnosis_id)
             .join(RoomsTable, RoomsTable.room_id == AlertsTable.room_id)
             .join(FloorsTable, FloorsTable.floor_id == RoomsTable.floor_id)
@@ -588,8 +589,9 @@ def fetch_alerts_overview(engine: Engine, building_id: str) -> list[AlertOvervie
             id=a.id, diagnosis_id=a.diagnosis_id, anomaly_id=anomaly_id, room_id=a.room_id, room_label=room_label,
             floor_level=level, channel=a.channel, recipient=a.recipient, cause=cause, cause_confidence=cause_confidence,
             message=a.payload.get('message', '') if isinstance(a.payload, dict) else '', sent_at=a.sent_at,
+            energy_wasted_kwh=energy_wasted_kwh,
         )
-        for a, anomaly_id, cause, cause_confidence, room_label, level in rows
+        for a, anomaly_id, cause, cause_confidence, energy_wasted_kwh, room_label, level in rows
     ]
 
 @dataclass(frozen=True)

@@ -329,6 +329,7 @@ class AlertOverview(BaseModel):
     cause_confidence: str
     message: str
     sent_at: datetime
+    energy_wasted_kwh: float
 
 
 @app.get("/buildings/{building_id}/alerts", response_model=list[AlertOverview])
@@ -348,6 +349,7 @@ def get_alerts(building_id: str) -> list[AlertOverview]:
             cause_confidence=r.cause_confidence,
             message=r.message,
             sent_at=r.sent_at,
+            energy_wasted_kwh=r.energy_wasted_kwh,
         )
         for r in rows
     ]
