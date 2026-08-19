@@ -109,23 +109,9 @@ export default function Dashboard() {
               {building.address} · {building.floorsCount} Floors · {building.roomsCount} Rooms
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
-              <span className="text-ink-400">Health Score</span>
-              <span className="font-medium text-ink-900 dark:text-white">{building.healthScore}%</span>
               <StatusBadge status={building.status} label={building.status} />
             </div>
             <p className="mt-2 text-[12px] text-ink-400">Last AI Optimization: {building.lastAiOptimization}</p>
-          </div>
-
-          <div className="flex flex-col gap-2 rounded-xl border border-ink-100 bg-ink-50 p-4 text-[13px] dark:border-ink-800 dark:bg-ink-800/50">
-            <p className="flex items-center gap-2 text-ink-500 dark:text-ink-300">
-              <Sun size={15} className="text-amber-500" /> {building.weather.tempC}°C · {building.weather.condition}
-            </p>
-            <p className="flex items-center gap-2 text-ink-500 dark:text-ink-300">
-              <Droplets size={15} className="text-sky-500" /> Humidity {building.weather.humidityPct}%
-            </p>
-            <p className="flex items-center gap-2 text-ink-500 dark:text-ink-300">
-              <Wind size={15} className="text-ink-400" /> Wind {building.weather.windKph} km/h
-            </p>
           </div>
         </div>
       </div>

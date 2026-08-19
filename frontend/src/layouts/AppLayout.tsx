@@ -25,22 +25,10 @@ import {
   Timer,
 } from "lucide-react";
 import clsx from "clsx";
-import { currentUser, notifications, globalAgents, buildings as mockBuildings } from "../data/mock";
+import { notifications, buildings as mockBuildings } from "../data/mock";
 import { fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
-import type { AgentStatusState, Building } from "../types";
-
-const agentDot: Record<AgentStatusState, string> = {
-  completed: "bg-teal-500",
-  monitoring: "bg-primary-500",
-  idle: "bg-ink-300 dark:bg-ink-600",
-  warning: "bg-red-500",
-};
-const agentText: Record<AgentStatusState, string> = {
-  completed: "text-teal-700 dark:text-teal-400",
-  monitoring: "text-primary-600 dark:text-primary-400",
-  idle: "text-ink-400",
-  warning: "text-red-700 dark:text-red-400",
-};
+import { useAuth } from "../lib/auth";
+import type { Building } from "../types";
 
 function useTheme() {
   const [dark, setDark] = useState(() => localStorage.getItem("dynamiq-theme") === "dark");
@@ -140,43 +128,6 @@ function NotificationBell() {
   );
 }
 
-function AiStatusDropdown() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        className="flex items-center gap-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-[12px] font-medium text-teal-700 transition hover:bg-teal-500/20 dark:text-teal-400"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-        AI Services Online
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-30 mt-2 w-64 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-lg dark:border-ink-800 dark:bg-ink-900">
-            <div className="border-b border-ink-100 px-4 py-3 dark:border-ink-800">
-              <p className="text-[13px] font-medium dark:text-white">AI Pipeline</p>
-              <p className="text-[11px] text-ink-400">Global agent status</p>
-            </div>
-            <div className="flex flex-col gap-1 p-2">
-              {globalAgents.map((a) => (
-                <div key={a.name} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-[12px] hover:bg-ink-50 dark:hover:bg-ink-800">
-                  <span className="text-ink-600 dark:text-ink-300">{a.label}</span>
-                  <span className={clsx("flex items-center gap-1 font-medium", agentText[a.state])}>
-                    <span className={clsx("h-1.5 w-1.5 rounded-full", agentDot[a.state])} />
-                    {a.detail}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
   const { buildingId } = useParams();
   const [open, setOpen] = useState(false);
@@ -227,6 +178,7 @@ function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
 function SidebarProfile({ dark, toggle, collapsed }: { dark: boolean; toggle: () => void; collapsed: boolean }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
   return (
     <div className="relative mt-auto border-t border-ink-100 p-2 dark:border-ink-800">
       <div
@@ -234,12 +186,12 @@ function SidebarProfile({ dark, toggle, collapsed }: { dark: boolean; toggle: ()
       >
         <button className="flex min-w-0 items-center gap-2" onClick={() => setOpen((v) => !v)} aria-label="Open profile menu">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-100 text-[13px] font-medium text-primary-700 dark:bg-primary-800 dark:text-primary-200">
-            {currentUser.avatarInitials}
+            {user?.avatarInitials}
           </span>
           {!collapsed && (
             <div className="min-w-0 flex-1 text-left">
-              <p className="truncate text-[12px] font-medium leading-tight text-ink-900 dark:text-ink-50">{currentUser.name}</p>
-              <p className="truncate text-[11px] capitalize leading-tight text-ink-400">{currentUser.role.replace("_", " ")}</p>
+              <p className="truncate text-[12px] font-medium leading-tight text-ink-900 dark:text-ink-50">{user?.name}</p>
+              <p className="truncate text-[11px] capitalize leading-tight text-ink-400">{user?.role.replace("_", " ")}</p>
             </div>
           )}
         </button>
@@ -268,6 +220,7 @@ function SidebarProfile({ dark, toggle, collapsed }: { dark: boolean; toggle: ()
               className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
               onClick={() => {
                 setOpen(false);
+                signOut();
                 navigate("/login");
               }}
             >
@@ -314,10 +267,7 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
           ],
         },
         {
-          items: [
-            { to: `${base}/settings`, icon: <Settings size={18} />, label: "Settings" },
-            { to: `${base}/admin`, icon: <Settings size={18} />, label: "Administration" },
-          ],
+          items: [{ to: `${base}/settings`, icon: <Settings size={18} />, label: "Settings" }],
         },
       ]
     : [];
@@ -388,12 +338,13 @@ export default function AppLayout() {
   const { dark, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const { buildingId } = useParams();
+  const { orgId } = useAuth();
   const [mpcRunning, setMpcRunning] = useState(true);
   const [buildings, setBuildings] = useState<Building[]>(mockBuildings);
 
   useEffect(() => {
     let cancelled = false;
-    fetchOrgBuildings()
+    fetchOrgBuildings(orgId ?? undefined)
       .then((dtos) => {
         if (!cancelled) setBuildings(dtos.map(toPortfolioBuilding));
       })
@@ -403,7 +354,7 @@ export default function AppLayout() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [orgId]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f4f1] dark:bg-[#161512]">
@@ -438,10 +389,6 @@ export default function AppLayout() {
           <SearchInput buildings={buildings} />
 
           <div className="flex items-center gap-1.5">
-            <span className="flex items-center gap-1 rounded-lg px-2 text-[12px] text-ink-500 dark:text-ink-300">
-              <Sun size={15} className="text-amber-500" /> 36°C
-            </span>
-            <AiStatusDropdown />
             <NotificationBell />
           </div>
         </header>

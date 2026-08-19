@@ -8,7 +8,7 @@ from pydantic import BaseModel
 import logging
 from agents.logging_config import configure_agent_logging
 from . import constants
-from .db import fetch_alerts_overview, fetch_anomaly_detail, fetch_anomalies_overview, fetch_diagnoses_overview, fetch_latest_mpc_schedule, fetch_mpc_rooms, fetch_reports_summary, fetch_room, fetch_thermal_overview, get_engine
+from .db import fetch_alerts_overview, fetch_anomaly_detail, fetch_anomalies_overview, fetch_diagnoses_overview, fetch_latest_mpc_schedule, fetch_mpc_rooms, fetch_org_alert_email, fetch_reports_summary, fetch_room, fetch_thermal_overview, get_engine, update_org_alert_email
 
 configure_agent_logging("agents.thermal_agent", "thermal_agent.log")
 
@@ -24,7 +24,7 @@ _DEFAULT_CORS_ORIGINS = ",".join(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("THERMAL_API_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS).split(","),
-    allow_methods=["GET"],
+    allow_methods=["GET", "PUT"],
     allow_headers=["*"],
 )
 
@@ -408,3 +408,22 @@ def get_reports_summary(building_id: str, days: int = 30) -> ReportsSummary:
         daily=[DailyEnergyPoint(date=d.date, kwh=d.kwh, gco2=d.gco2) for d in result.daily],
         comfort_leaderboard=leaderboard[:6],
     )
+
+
+class AlertEmailSettings(BaseModel):
+    email: str | None
+
+
+@app.get("/buildings/{building_id}/settings/alert-email", response_model=AlertEmailSettings)
+def get_alert_email(building_id: str) -> AlertEmailSettings:
+    return AlertEmailSettings(email=fetch_org_alert_email(get_engine(), building_id))
+
+
+@app.put("/buildings/{building_id}/settings/alert-email", response_model=AlertEmailSettings)
+def put_alert_email(building_id: str, body: AlertEmailSettings) -> AlertEmailSettings:
+    if not body.email:
+        raise HTTPException(status_code=400, detail="email is required")
+    updated = update_org_alert_email(get_engine(), building_id, body.email)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"No organisation found for building {building_id}")
+    return AlertEmailSettings(email=body.email)

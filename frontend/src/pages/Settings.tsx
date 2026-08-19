@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
-import { currentUser } from "../data/mock";
+import { fetchAlertEmail, ThermalApiError, updateAlertEmail } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { Card, CardHeader, Field, PrimaryButton, SecondaryButton, StatusBadge, inputClass } from "../components/ui";
 
 const tabs = ["Users & roles", "Building", "Integrations", "Calibration"] as const;
@@ -12,7 +15,82 @@ const teamMembers = [
   { name: "Djezzy stakeholder", email: "viewer@djezzy.dz", role: "viewer" as const },
 ];
 
+function AlertEmailCard({ buildingId }: { buildingId: string }) {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchAlertEmail(buildingId)
+      .then((value) => {
+        if (!cancelled) setEmail(value ?? "");
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof ThermalApiError ? err.message : "Failed to load alert email");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingId]);
+
+  function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    updateAlertEmail(buildingId, email)
+      .then(() => setSaved(true))
+      .catch((err: unknown) => setError(err instanceof ThermalApiError ? err.message : "Failed to save alert email"))
+      .finally(() => setSaving(false));
+  }
+
+  return (
+    <Card className="mt-5 p-5">
+      <CardHeader title="Alert notifications" subtitle="Where Agent 4 sends an email when a diagnosis needs a human — one address for this building's organisation." />
+      <div className="flex flex-col gap-4 px-0 pt-4">
+        <Field label="Alert email" hint="Falls back to SUPERVISOR_ALERT_EMAIL_TO in the backend config if left empty.">
+          <input
+            className={inputClass}
+            type="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setSaved(false);
+            }}
+            placeholder="facilities@yourcompany.com"
+            disabled={loading}
+          />
+        </Field>
+        {error && (
+          <p className="flex items-center gap-1.5 text-[13px] text-red-600 dark:text-red-400">
+            <AlertTriangle size={14} /> {error}
+          </p>
+        )}
+        {saved && !error && (
+          <p className="flex items-center gap-1.5 text-[13px] text-teal-600 dark:text-teal-400">
+            <CheckCircle2 size={14} /> Saved
+          </p>
+        )}
+        <div className="flex justify-end">
+          <PrimaryButton onClick={handleSave} className={loading || saving ? "pointer-events-none opacity-50" : undefined}>
+            {saving ? "Saving…" : "Save alert email"}
+          </PrimaryButton>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function Settings() {
+  const { buildingId = "esi-algiers" } = useParams();
+  const { user } = useAuth();
   const [tab, setTab] = useState<(typeof tabs)[number]>("Users & roles");
 
   return (
@@ -37,7 +115,7 @@ export default function Settings() {
 
       {tab === "Users & roles" && (
         <Card className="mt-5">
-          <CardHeader title="Team" subtitle={`Signed in as ${currentUser.email}`} action={<PrimaryButton>Invite member</PrimaryButton>} />
+          <CardHeader title="Team" subtitle={user ? `Signed in as ${user.email}` : undefined} action={<PrimaryButton>Invite member</PrimaryButton>} />
           <div className="divide-y divide-ink-100 dark:divide-ink-800">
             {teamMembers.map((m) => (
               <div key={m.email} className="flex items-center justify-between px-5 py-3.5">
@@ -71,6 +149,8 @@ export default function Settings() {
           </div>
         </Card>
       )}
+
+      {tab === "Building" && <AlertEmailCard buildingId={buildingId} />}
 
       {tab === "Integrations" && (
         <Card className="mt-5 p-5">

@@ -260,10 +260,6 @@ export default function Anomalies() {
         return a.status === "resolved";
       case "high":
         return a.severity === "high";
-      case "medium":
-        return a.severity === "medium";
-      case "low":
-        return a.severity === "low";
       case "excess":
         return (a.residualC ?? 0) - (a.thresholdC ?? 0) > 0;
       default:
@@ -387,15 +383,11 @@ export default function Anomalies() {
   const stats = useMemo(() => {
     const list = anomalies ?? [];
     const open = list.filter((a) => a.status === "open").length;
-    const diagnosed = list.filter((a) => a.status === "diagnosed").length;
-    const resolved = list.filter((a) => a.status === "resolved").length;
     const high = list.filter((a) => a.severity === "high").length;
-    const medium = list.filter((a) => a.severity === "medium").length;
-    const low = list.filter((a) => a.severity === "low").length;
     const avgExcess = list.length
       ? list.reduce((s, a) => s + ((a.residualC ?? 0) - (a.thresholdC ?? 0)), 0) / list.length
       : 0;
-    return { total: list.length, open, diagnosed, resolved, high, medium, low, avgExcess };
+    return { total: list.length, open, high, avgExcess };
   }, [anomalies]);
 
   const selectCls = "rounded-lg border border-ink-200 bg-white px-2.5 py-2 text-[13px] text-ink-700 outline-none dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200";
@@ -440,39 +432,11 @@ export default function Anomalies() {
               onClick={() => { setStatus("open"); setSev("all"); }}
             />
             <StatCard
-              label="Diagnosed Anomalies" value={loading ? "—" : String(stats.diagnosed)}
-              risk={stats.diagnosed === 0 ? "warn" : "safe"}
-              filter active={status === "diagnosed"}
-              onHover={(h) => setHoverFilter(h ? "diagnosed" : null)}
-              onClick={() => { setStatus("diagnosed"); setSev("all"); }}
-            />
-            <StatCard
-              label="Resolved Anomalies" value={loading ? "—" : String(stats.resolved)}
-              risk={stats.resolved === 0 ? "warn" : "safe"}
-              filter active={status === "resolved"}
-              onHover={(h) => setHoverFilter(h ? "resolved" : null)}
-              onClick={() => { setStatus("resolved"); setSev("all"); }}
-            />
-            <StatCard
               label="High-Severity Anomalies" value={loading ? "—" : String(stats.high)}
               risk={stats.high === 0 ? "safe" : "danger"}
               filter active={sev === "high"}
               onHover={(h) => setHoverFilter(h ? "high" : null)}
               onClick={() => { setSev("high"); setStatus("all"); }}
-            />
-            <StatCard
-              label="Medium-Severity Anomalies" value={loading ? "—" : String(stats.medium)}
-              risk={stats.medium === 0 ? "safe" : "warn"}
-              filter active={sev === "medium"}
-              onHover={(h) => setHoverFilter(h ? "medium" : null)}
-              onClick={() => { setSev("medium"); setStatus("all"); }}
-            />
-            <StatCard
-              label="Low-Severity Anomalies" value={loading ? "—" : String(stats.low)}
-              risk={stats.low === 0 ? "safe" : "warn"}
-              filter active={sev === "low"}
-              onHover={(h) => setHoverFilter(h ? "low" : null)}
-              onClick={() => { setSev("low"); setStatus("all"); }}
             />
             <StatCard
               label="Avg. Threshold Exceedance" value={loading ? "—" : `${stats.avgExcess > 0 ? "+" : ""}${stats.avgExcess.toFixed(2)}°C`}

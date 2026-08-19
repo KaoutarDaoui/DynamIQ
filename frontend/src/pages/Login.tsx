@@ -1,13 +1,32 @@
-import { useNavigate } from "react-router-dom";
-import { Zap } from "lucide-react";
+import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { AlertTriangle, Zap } from "lucide-react";
+import { ApiError } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { Field, PrimaryButton, inputClass } from "../components/ui";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { signIn } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    navigate("/");
+    setSubmitting(true);
+    setError(null);
+    signIn(email, password)
+      .then(() => {
+        const redirectTo = (location.state as { from?: string } | null)?.from ?? "/";
+        navigate(redirectTo, { replace: true });
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message : "Could not reach the server.");
+      })
+      .finally(() => setSubmitting(false));
   }
 
   return (
@@ -24,13 +43,34 @@ export default function Login() {
 
         <form className="mt-6 flex flex-col gap-4" onSubmit={handleSubmit}>
           <Field label="Email">
-            <input type="email" required defaultValue="mr_amira@esi.dz" className={inputClass} placeholder="you@company.com" />
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={inputClass}
+              placeholder="you@company.com"
+              autoComplete="email"
+            />
           </Field>
           <Field label="Password">
-            <input type="password" required defaultValue="••••••••" className={inputClass} placeholder="••••••••" />
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputClass}
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
           </Field>
-          <PrimaryButton type="submit" className="mt-2 w-full">
-            Sign in
+          {error && (
+            <p className="flex items-center gap-1.5 text-[13px] text-red-600 dark:text-red-400">
+              <AlertTriangle size={14} /> {error}
+            </p>
+          )}
+          <PrimaryButton type="submit" className={`mt-2 w-full ${submitting ? "pointer-events-none opacity-50" : ""}`}>
+            {submitting ? "Signing in…" : "Sign in"}
           </PrimaryButton>
         </form>
 

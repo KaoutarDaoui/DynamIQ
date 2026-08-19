@@ -1,4 +1,4 @@
-import type { AgentStatus, Building } from "../types";
+import type { AgentStatus, Building, Role } from "../types";
 import type { LiveAlert, LiveAnomalyDetail, LiveAnomalyOverview, LiveDiagnosisOverview, MpcRoomSummary, MpcSchedule, ReportsSummary, ThermalModelRoom } from "../types";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8010";
@@ -80,6 +80,31 @@ export interface BuildingCreatedDto {
 
 export function fetchOrgBuildings(orgId: string = DEFAULT_ORG_ID): Promise<BuildingSummaryDto[]> {
   return request(`/organisations/${orgId}/buildings`);
+}
+
+export interface AuthUserDto {
+  user_id: string;
+  name: string;
+  email: string;
+  org_id: string | null;
+  role: Role;
+}
+
+export interface LoginResponseDto {
+  token: string;
+  user: AuthUserDto;
+}
+
+export function login(email: string, password: string): Promise<LoginResponseDto> {
+  return request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+}
+
+export function fetchMe(token: string): Promise<AuthUserDto> {
+  return request("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export async function logout(token: string): Promise<void> {
+  await fetch(`${API_BASE_URL}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
 }
 
 export function createBuilding(payload: BuildingCreatePayload): Promise<BuildingCreatedDto> {
@@ -186,6 +211,19 @@ export class ThermalApiError extends Error {}
 async function _get(path: string, signal?: AbortSignal): Promise<Response> {
   try {
     return await fetch(`${THERMAL_API_BASE}${path}`, { signal });
+  } catch {
+    throw new ThermalApiError(`Could not reach the Thermal Agent API at ${THERMAL_API_BASE}`);
+  }
+}
+
+async function _put(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  try {
+    return await fetch(`${THERMAL_API_BASE}${path}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
   } catch {
     throw new ThermalApiError(`Could not reach the Thermal Agent API at ${THERMAL_API_BASE}`);
   }
@@ -572,6 +610,31 @@ interface ReportsSummaryApiResponse {
     deviation_c: number;
     reading_at: string;
   }[];
+}
+
+interface AlertEmailApiResponse {
+  email: string | null;
+}
+
+export async function fetchAlertEmail(buildingId: string, signal?: AbortSignal): Promise<string | null> {
+  const realBuildingId = BUILDING_ID_MAP[buildingId] ?? buildingId;
+  const res = await _get(`/buildings/${encodeURIComponent(realBuildingId)}/settings/alert-email`, signal);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new ThermalApiError(`Thermal Agent API returned ${res.status}`);
+  const d: AlertEmailApiResponse = await res.json();
+  return d.email;
+}
+
+export async function updateAlertEmail(buildingId: string, email: string): Promise<string> {
+  const realBuildingId = BUILDING_ID_MAP[buildingId] ?? buildingId;
+  const res = await _put(`/buildings/${encodeURIComponent(realBuildingId)}/settings/alert-email`, { email });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = typeof body?.detail === "string" ? body.detail : `Thermal Agent API returned ${res.status}`;
+    throw new ThermalApiError(detail);
+  }
+  const d: AlertEmailApiResponse = await res.json();
+  return d.email ?? email;
 }
 
 export async function fetchReportsSummary(buildingId: string, days = 30, signal?: AbortSignal): Promise<ReportsSummary | null> {

@@ -8,18 +8,19 @@ import re
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlmodel import Session, func, select
 
 from agents.logging_config import configure_agent_logging
+from .auth import authenticate, create_session, delete_session, ensure_users_tables, get_user_by_token
 from .building_agent import BuildingAgent
 from .config import engine, get_session
 from .db_manager import replace_room_air_conditioners, save_building, save_floor
 from .graph import ensure_building_agent_runs_table
 from .plan_annotator import annotate_plan_with_room_numbers
-from .schema_models import Building, Floor, Room
+from .schema_models import Building, Floor, Room, User
 from .storage_client import upload_annotated_plan
 
 configure_agent_logging("agents.building_agent", "building_agent.log")
@@ -47,6 +48,7 @@ app.add_middleware(
 @app.on_event("startup")
 def _ensure_run_log_table() -> None:
     ensure_building_agent_runs_table(engine)
+    ensure_users_tables(engine)
 
 
 class HealthResponse(BaseModel):
@@ -141,6 +143,66 @@ class BuildingSummary(BaseModel):
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserOut(BaseModel):
+    user_id: str
+    name: str
+    email: str
+    org_id: str | None
+    role: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    user: UserOut
+
+
+def _user_out(user: User) -> UserOut:
+    return UserOut(user_id=user.user_id, name=user.name, email=user.email, org_id=user.org_id, role=user.role)
+
+
+def _bearer_token(authorization: str | None) -> str | None:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    return authorization.split(" ", 1)[1].strip()
+
+
+def current_user(session: SessionDep, authorization: Annotated[str | None, Header()] = None) -> User:
+    token = _bearer_token(authorization)
+    user = get_user_by_token(session, token) if token else None
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+CurrentUserDep = Annotated[User, Depends(current_user)]
+
+
+@app.post("/auth/login", response_model=LoginResponse, summary="Sign in with email + password")
+async def login(payload: LoginRequest, session: SessionDep) -> LoginResponse:
+    user = authenticate(session, payload.email, payload.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_session(session, user.user_id)
+    return LoginResponse(token=token, user=_user_out(user))
+
+
+@app.get("/auth/me", response_model=UserOut, summary="Current user for a session token")
+async def me(user: CurrentUserDep) -> UserOut:
+    return _user_out(user)
+
+
+@app.post("/auth/logout", response_model=None, status_code=204, summary="Invalidate the current session token")
+async def logout(session: SessionDep, authorization: Annotated[str | None, Header()] = None) -> None:
+    token = _bearer_token(authorization)
+    if token:
+        delete_session(session, token)
 
 
 ALLOWED_CONTENT_TYPES = {

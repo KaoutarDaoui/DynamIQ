@@ -38,6 +38,18 @@ class FloorsTable(SupervisorBase, table=True):
     building_id: str
 
 
+class BuildingsTable(SupervisorBase, table=True):
+    __tablename__ = "buildings"
+    building_id: str = Field(primary_key=True)
+    org_id: str | None = None
+
+
+class OrganisationsTable(SupervisorBase, table=True):
+    __tablename__ = "organisations"
+    org_id: str = Field(primary_key=True)
+    email: str | None = None
+
+
 class AnomaliesTable(SupervisorBase, table=True):
     __tablename__ = "anomalies"
     id: int | None = Field(default=None, primary_key=True)
@@ -64,6 +76,16 @@ def fetch_undiagnosed_anomaly_ids(engine: Engine, building_id: str) -> list[int]
             .order_by(AnomaliesTable.opened_at.asc())
         ).all()
     return list(rows)
+
+
+def fetch_org_alert_email(engine: Engine, building_id: str) -> str | None:
+    with Session(engine) as session:
+        result = session.exec(
+            select(OrganisationsTable.email)
+            .join(BuildingsTable, BuildingsTable.org_id == OrganisationsTable.org_id)
+            .where(BuildingsTable.building_id == building_id)
+        ).first()
+    return result
 
 
 def fetch_last_calibration_time(engine: Engine, building_id: str) -> datetime | None:
