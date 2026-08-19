@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, ChevronLeft, Clock, Wrench, Shield, Zap, LayoutGrid, TrendingUp, ArrowRight, ActivitySquare, AlertCircle, ExternalLink, Thermometer, Gauge, Timer, MapPin } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, Clock, Wrench, Shield, Zap, LayoutGrid, TrendingUp, ActivitySquare, AlertCircle, ExternalLink, Thermometer, Gauge, Timer, MapPin, Info } from "lucide-react";
 import { fetchAnomalyDetail, fetchAuditLog, fetchActionDecision, recordActionDecision, ThermalApiError } from "../lib/api";
 import type { LiveAnomalyDetail, LiveDiagnosisSummary, AuditLog, AuditLogToolCall, ActionDecision } from "../types";
 import { Card, CardHeader, StatusBadge, SecondaryButton, PrimaryButton } from "../components/ui";
@@ -398,22 +398,40 @@ function EvidenceTimeline({ evidence, auditLog }: { evidence: string[]; auditLog
   return (
     <div className="space-y-6">
       {evidence.map((e, i) => {
-        const [tool, ...rest] = e.split(":");
-        rest.join(":").trim();
-        const step = stepLabels[tool] ?? { label: formatToolName(tool), icon: <ArrowRight size={16} className="text-primary-600" /> };
-        const toolCall = toolCallsByTool.get(tool);
-        const description = generateDescription(tool, toolCall);
+        const colonIdx = e.indexOf(":");
+        const isToolStep = colonIdx > 0 && stepLabels[e.slice(0, colonIdx)] !== undefined;
         const isLast = i === evidence.length - 1;
+        if (!isToolStep) {
+          return (
+            <div key={i} className="relative flex gap-4">
+              <div className="flex flex-col items-center">
+                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+                  <Info size={16} />
+                </div>
+                {!isLast && <div className="mt-2 w-0.5 h-full bg-ink-200 dark:bg-ink-700" />}
+              </div>
+              <div className="flex-1 pt-1">
+                <p className="text-[13px] text-ink-600 dark:text-ink-300">{e}</p>
+              </div>
+            </div>
+          );
+        }
+        const tool = e.slice(0, colonIdx);
+        const rawDetail = e.slice(colonIdx + 1).trim();
+        const step = stepLabels[tool];
+        const toolCall = toolCallsByTool.get(tool);
+        const generated = generateDescription(tool, toolCall);
+        const description = generated === "Tool was called but no data returned" && rawDetail ? rawDetail : generated;
         return (
           <div key={i} className="relative flex gap-4">
             <div className="flex flex-col items-center">
               <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
-                {step.icon}
+                {step?.icon}
               </div>
               {!isLast && <div className="mt-2 w-0.5 h-full bg-ink-200 dark:bg-ink-700" />}
             </div>
             <div className="flex-1 pt-1">
-              <p className="font-medium text-ink-800 dark:text-ink-100">{step.label}</p>
+              <p className="font-medium text-ink-800 dark:text-ink-100">{step?.label ?? formatToolName(tool)}</p>
               <p className="mt-1 text-[13px] text-ink-600 dark:text-ink-300">{description}</p>
               {toolCall && extractFacts(tool, toolCall).length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -425,9 +443,27 @@ function EvidenceTimeline({ evidence, auditLog }: { evidence: string[]; auditLog
                 </div>
               )}
               {toolCall && (
-                <p className="mt-1.5 text-[11px] text-ink-400 font-mono">
-                  {new Date(toolCall.timestamp).toLocaleTimeString()} · {Object.keys(toolCall.args).length} arg(s)
-                </p>
+                <>
+                  <p className="mt-1.5 text-[11px] text-ink-400 font-mono">
+                    {new Date(toolCall.timestamp).toLocaleTimeString()} · {Object.keys(toolCall.args).length} arg(s)
+                  </p>
+                  {Object.keys(toolCall.args).length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-[11px] text-primary-600 hover:underline cursor-pointer">Arguments</summary>
+                      <pre className="mt-2 bg-ink-100 dark:bg-ink-800 p-3 rounded-lg text-[10px] font-mono overflow-x-auto max-h-48">
+                        {JSON.stringify(toolCall.args, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                  {Object.keys(toolCall.result).length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-[11px] text-primary-600 hover:underline cursor-pointer">Result</summary>
+                      <pre className="mt-2 bg-ink-100 dark:bg-ink-800 p-3 rounded-lg text-[10px] font-mono overflow-x-auto max-h-48">
+                        {JSON.stringify(toolCall.result, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </>
               )}
             </div>
           </div>
