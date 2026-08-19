@@ -33,7 +33,11 @@ def run_diagnosis_cycle(
 ) -> list[diagnostic_diagnose.DiagnosisRunResult]:
     anomaly_ids = db.fetch_undiagnosed_anomaly_ids(engine, building_id)
     results = []
-    alert_email = db.fetch_org_alert_email(engine, building_id)
+    # Prefer real account emails (people who can actually log in and act on
+    # this) over the organisation's generic contact address, which is only a
+    # fallback for orgs that don't have a user account set up yet.
+    user_emails = db.fetch_org_user_emails(engine, building_id)
+    alert_email = ", ".join(user_emails) if user_emails else db.fetch_org_alert_email(engine, building_id)
     for anomaly_id in anomaly_ids:
         result = diagnostic_diagnose.diagnose_anomaly(engine, anomaly_id)
         results.append(result)

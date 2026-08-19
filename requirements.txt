@@ -18,6 +18,7 @@ anthropic>=0.40
 
 # Agent 3 orchestration graph (LangGraph)
 langgraph>=1.0
+langgraph-checkpoint-sqlite>=2.0
 
 # Building Agent API + vision pipeline
 fastapi==0.111.0
