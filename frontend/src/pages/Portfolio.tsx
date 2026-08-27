@@ -247,7 +247,7 @@ export default function Portfolio() {
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
         <SummaryCard icon={<Building2 size={16} />} label="Buildings" value={String(totals.buildings)} />
         <SummaryCard icon={<Users size={16} />} label="Healthy Rooms" value={String(totals.healthyRooms)} />
-        <SummaryCard icon={<Zap size={16} />} label="Active Anomalies" value={String(totals.activeAnomalies)} accent={totals.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"} />
+        <SummaryCard icon={<AlertTriangle size={16} />} label="Active Anomalies" value={String(totals.activeAnomalies)} accent={totals.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"} />
         <SummaryCard icon={<Zap size={16} />} label="Energy Saved" value={`${totals.energySaved.toFixed(0)}%`} accent="text-teal-700 dark:text-teal-300" />
         <SummaryCard icon={<Sun size={16} />} label="Carbon Saved" value={`${totals.carbonSaved.toFixed(1)} t`} accent="text-teal-700 dark:text-teal-300" />
       </div>
