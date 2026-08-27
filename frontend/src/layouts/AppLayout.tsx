@@ -7,7 +7,6 @@ import {
   useParams,
 } from "react-router-dom";
 import {
-  Zap,
   Search,
   Sun,
   Moon,
@@ -26,15 +25,14 @@ import {
   HelpCircle,
   Activity,
   LogOut,
-  Play,
-  Pause,
   Timer,
+  Cpu as CpuIcon,
 } from "lucide-react";
 import clsx from "clsx";
 import { notifications, buildings as mockBuildings } from "../data/mock";
-import { fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
+import { fetchOrgBuildings, toPortfolioBuilding, fetchThermalModels, fetchMpcRooms, ThermalApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import type { Building } from "../types";
+import type { Building, ThermalModelRoom, MpcRoomSummary } from "../types";
 
 function useTheme() {
   const [dark, setDark] = useState(
@@ -278,6 +276,17 @@ function SidebarProfile({
   );
 }
 
+function formatTimeAgo(dateString: string): string {
+  const diff = Date.now() - new Date(dateString).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function Sidebar({ collapsed }: { collapsed: boolean }) {
   const { buildingId } = useParams();
   const base = buildingId ? `/b/${buildingId}` : null;
@@ -436,8 +445,10 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const { buildingId } = useParams();
   const { orgId } = useAuth();
-  const [mpcRunning, setMpcRunning] = useState(true);
   const [buildings, setBuildings] = useState<Building[]>(mockBuildings);
+  const [thermalModels, setThermalModels] = useState<ThermalModelRoom[]>([]);
+  const [mpcRooms, setMpcRooms] = useState<MpcRoomSummary[]>([]);
+  const [mpcLoading, setMpcLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -452,6 +463,51 @@ export default function AppLayout() {
       cancelled = true;
     };
   }, [orgId]);
+
+  useEffect(() => {
+    if (!buildingId) {
+      setThermalModels([]);
+      setMpcRooms([]);
+      return;
+    }
+    let cancelled = false;
+    setMpcLoading(true);
+    Promise.all([
+      fetchThermalModels(buildingId).catch(() => []),
+      fetchMpcRooms(buildingId).catch(() => []),
+    ])
+      .then(([models, mpc]) => {
+        if (!cancelled) {
+          setThermalModels(models);
+          setMpcRooms(mpc);
+          setMpcLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setThermalModels([]);
+          setMpcRooms([]);
+          setMpcLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingId]);
+
+  const mpcActive = mpcRooms.length > 0;
+  const latestMpcSolve = mpcRooms.length
+    ? mpcRooms.map((r) => r.latestSolvedAt).sort((a, b) => +new Date(b) - +new Date(a))[0]
+    : null;
+
+  const calibratedModels = thermalModels.filter((m) => m.isCalibrated);
+  const latestCalibration = calibratedModels.length
+    ? calibratedModels.map((m) => m.calibratedAt).filter(Boolean).sort((a, b) => +new Date(b!) - +new Date(a!))[0]
+    : null;
+
+  const nextCalibrationHours = latestCalibration
+    ? Math.max(0, Math.round((24 - ((Date.now() - new Date(latestCalibration).getTime()) / 36e5)) * 10) / 10)
+    : null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f4f1] dark:bg-[#161512]">
@@ -505,40 +561,37 @@ export default function AppLayout() {
 
         {buildingId && (
           <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-ink-100 bg-ink-50/60 px-4 py-2 text-[12px] dark:border-ink-800 dark:bg-ink-800/30">
-            <span className="flex items-center gap-1.5 font-medium text-ink-700 dark:text-ink-200">
-              <Zap size={13} className="text-primary-500" /> Optimization
-            </span>
             <span
               className={clsx(
                 "flex items-center gap-1.5",
-                mpcRunning
+                mpcActive
                   ? "text-teal-700 dark:text-teal-300"
                   : "text-ink-400",
               )}
             >
+              <CpuIcon size={13} className={mpcActive ? "text-teal-500" : "text-ink-400"} />
               <span
                 className={clsx(
                   "h-1.5 w-1.5 rounded-full",
-                  mpcRunning ? "bg-teal-500" : "bg-ink-300",
+                  mpcActive ? "bg-teal-500" : "bg-ink-300",
                 )}
               />
-              MPC {mpcRunning ? "active" : "paused"}
+              MPC {mpcActive ? "active" : "idle"}
+              {mpcLoading && <span className="text-[10px] text-ink-400">(loading…)</span>}
             </span>
-            <span className="flex items-center gap-1.5 text-ink-500 dark:text-ink-300">
-              <Timer size={12} /> Next calibration in 3 h · Last run 06:00
-            </span>
-            <button
-              onClick={() => setMpcRunning((v) => !v)}
-              className={clsx(
-                "ml-auto flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition",
-                mpcRunning
-                  ? "bg-white text-red-600 hover:bg-red-50 dark:bg-ink-900 dark:hover:bg-red-950"
-                  : "bg-white text-teal-600 hover:bg-teal-50 dark:bg-ink-900 dark:hover:bg-teal-950",
-              )}
-            >
-              {mpcRunning ? <Pause size={13} /> : <Play size={13} />}
-              {mpcRunning ? "Pause MPC" : "Start MPC"}
-            </button>
+            {latestMpcSolve && (
+              <span className="flex items-center gap-1.5 text-ink-500 dark:text-ink-300">
+                <Timer size={12} /> MPC solved {formatTimeAgo(latestMpcSolve)}
+              </span>
+            )}
+            {latestCalibration && (
+              <span className="flex items-center gap-1.5 text-ink-500 dark:text-ink-300">
+                <Timer size={12} /> Calibrated {formatTimeAgo(latestCalibration)}
+                {nextCalibrationHours !== null && nextCalibrationHours > 0 && (
+                  <> · Next in {nextCalibrationHours}h</>
+                )}
+              </span>
+            )}
           </div>
         )}
 
