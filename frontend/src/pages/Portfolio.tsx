@@ -4,7 +4,6 @@ import {
   Plus,
   Zap,
   Building2,
-  Search,
   Sun,
   Thermometer,
   MoreVertical,
@@ -43,7 +42,7 @@ const buildingStatus = {
   critical: { label: "Critical", dot: "bg-red-500", text: "text-red-700 dark:text-red-300" },
 };
 
-type SortKey = "health" | "name" | "newest";
+
 
 function HealthBar({ score }: { score: number }) {
   const color = score >= 85 ? "#1d9e75" : score >= 60 ? "#ef9f27" : "#e24b4a";
@@ -185,7 +184,7 @@ function BuildingCard({ building }: { building: Building }) {
 
 function SummaryCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent?: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm dark:border-ink-800 dark:bg-ink-900">
+    <div className="flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-300 dark:border-ink-800 dark:bg-ink-900 dark:hover:border-primary-700">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">{icon}</span>
       <div className="min-w-0">
         <p className="truncate text-[12px] text-ink-400">{label}</p>
@@ -196,8 +195,6 @@ function SummaryCard({ icon, label, value, accent }: { icon: React.ReactNode; la
 }
 
 export default function Portfolio() {
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("health");
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -233,16 +230,6 @@ export default function Portfolio() {
     [buildings]
   );
 
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase();
-    const list = buildings.filter((b) => b.name.toLowerCase().includes(q) || b.address.toLowerCase().includes(q));
-    return [...list].sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "newest") return b.id.localeCompare(a.id);
-      return b.healthScore - a.healthScore;
-    });
-  }, [buildings, query, sort]);
-
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex items-end justify-between">
@@ -260,21 +247,9 @@ export default function Portfolio() {
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
         <SummaryCard icon={<Building2 size={16} />} label="Buildings" value={String(totals.buildings)} />
         <SummaryCard icon={<Users size={16} />} label="Healthy Rooms" value={String(totals.healthyRooms)} />
-        <SummaryCard icon={<Zap size={16} />} label="Active Anomalies" value={String(totals.activeAnomalies)} accent={totals.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"} />
+        <SummaryCard icon={<AlertTriangle size={16} />} label="Active Anomalies" value={String(totals.activeAnomalies)} accent={totals.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"} />
         <SummaryCard icon={<Zap size={16} />} label="Energy Saved" value={`${totals.energySaved.toFixed(0)}%`} accent="text-teal-700 dark:text-teal-300" />
         <SummaryCard icon={<Sun size={16} />} label="Carbon Saved" value={`${totals.carbonSaved.toFixed(1)} t`} accent="text-teal-700 dark:text-teal-300" />
-      </div>
-
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="relative">
-          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-          <input className={clsx(inputClass, "w-64 pl-9")} placeholder="Search building..." value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
-        <select className={clsx(inputClass, "w-44")} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-          <option value="health">Sort: Health</option>
-          <option value="name">Sort: Name A–Z</option>
-          <option value="newest">Sort: Newest</option>
-        </select>
       </div>
 
       {loading ? (
@@ -288,9 +263,9 @@ export default function Portfolio() {
           <p className="mt-3 text-[15px] font-medium text-ink-900 dark:text-ink-100">Couldn't load buildings</p>
           <p className="mt-1 max-w-sm text-[13px] text-ink-400">{error}</p>
         </div>
-      ) : filtered.length > 0 ? (
+      ) : buildings.length > 0 ? (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          {filtered.map((b) => (
+          {buildings.map((b) => (
             <BuildingCard key={b.id} building={b} />
           ))}
         </div>
