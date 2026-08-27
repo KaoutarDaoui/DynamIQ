@@ -184,7 +184,7 @@ function BuildingCard({ building }: { building: Building }) {
 
 function SummaryCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent?: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm dark:border-ink-800 dark:bg-ink-900">
+    <div className="flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-300 dark:border-ink-800 dark:bg-ink-900 dark:hover:border-primary-700">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">{icon}</span>
       <div className="min-w-0">
         <p className="truncate text-[12px] text-ink-400">{label}</p>
