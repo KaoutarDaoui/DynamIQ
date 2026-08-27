@@ -414,7 +414,7 @@ async def upload_floor_plan(
             filename=plan_file.filename,
             north_angle_deg=north_angle_deg,
             building_id=building_id,
-            floor_level=level,
+            floor_level=floor_level,
             floor_name=floor_name,
             expected_room_count=expected_room_count,
         )
@@ -466,7 +466,7 @@ async def upload_floor_plan(
     )
     return OnboardingResponse(
         building_id=building_id,
-        floor_level=level,
+        floor_level=floor_level,
         floor_id=floor_id,
         rooms_saved=len(result.get("saved_rooms", [])),
         rooms_flagged=len(result.get("flagged_rooms", [])),

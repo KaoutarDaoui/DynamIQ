@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { NavLink, Link, Outlet, useNavigate, useParams } from "react-router-dom";
+import {
+  NavLink,
+  Link,
+  Outlet,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import {
   Zap,
   Search,
@@ -31,7 +37,9 @@ import { useAuth } from "../lib/auth";
 import type { Building } from "../types";
 
 function useTheme() {
-  const [dark, setDark] = useState(() => localStorage.getItem("dynamiq-theme") === "dark");
+  const [dark, setDark] = useState(
+    () => localStorage.getItem("dynamiq-theme") === "dark",
+  );
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("dynamiq-theme", dark ? "dark" : "light");
@@ -46,7 +54,9 @@ function SearchInput({ buildings }: { buildings: Building[] }) {
   const results = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return [];
-    const b = buildings.filter((x) => x.name.toLowerCase().includes(term)).map((x) => ({ to: `/b/${x.id}`, label: x.name, sub: "Building" }));
+    const b = buildings
+      .filter((x) => x.name.toLowerCase().includes(term))
+      .map((x) => ({ to: `/b/${x.id}`, label: x.name, sub: "Building" }));
     return b.slice(0, 8);
   }, [q, buildings]);
 
@@ -69,7 +79,11 @@ function SearchInput({ buildings }: { buildings: Building[] }) {
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
           <div className="absolute left-0 right-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-ink-100 bg-white py-1 shadow-lg dark:border-ink-800 dark:bg-ink-900">
-            {results.length === 0 && <p className="px-3.5 py-3 text-[13px] text-ink-400">No results for "{q}"</p>}
+            {results.length === 0 && (
+              <p className="px-3.5 py-3 text-[13px] text-ink-400">
+                No results for "{q}"
+              </p>
+            )}
             {results.map((r) => (
               <Link
                 key={`${r.sub}-${r.label}`}
@@ -80,8 +94,12 @@ function SearchInput({ buildings }: { buildings: Building[] }) {
                 }}
                 className="flex items-center justify-between px-3.5 py-2 text-[13px] hover:bg-ink-50 dark:hover:bg-ink-800"
               >
-                <span className="font-medium text-ink-800 dark:text-ink-100">{r.label}</span>
-                <span className="text-[11px] uppercase text-ink-400">{r.sub}</span>
+                <span className="font-medium text-ink-800 dark:text-ink-100">
+                  {r.label}
+                </span>
+                <span className="text-[11px] uppercase text-ink-400">
+                  {r.sub}
+                </span>
               </Link>
             ))}
           </div>
@@ -108,7 +126,9 @@ function NotificationBell() {
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-lg dark:border-ink-800 dark:bg-ink-900">
             <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3 dark:border-ink-800">
-              <p className="text-[14px] font-medium dark:text-white">Notifications</p>
+              <p className="text-[14px] font-medium dark:text-white">
+                Notifications
+              </p>
               <span className="rounded-full bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-700">
                 {notifications.length} new
               </span>
@@ -116,7 +136,9 @@ function NotificationBell() {
             <div className="divide-y divide-ink-100 dark:divide-ink-800">
               {notifications.map((n) => (
                 <div key={n.id} className="px-4 py-3">
-                  <p className="text-[13px] font-medium text-ink-900 dark:text-ink-50">{n.title}</p>
+                  <p className="text-[13px] font-medium text-ink-900 dark:text-ink-50">
+                    {n.title}
+                  </p>
                   <p className="text-[12px] text-ink-400">{n.time}</p>
                 </div>
               ))}
@@ -140,7 +162,9 @@ function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
         onClick={() => setOpen((v) => !v)}
       >
         <Building2 size={15} className="shrink-0 text-primary-500" />
-        <span className="truncate">{current ? current.name : "Select building"}</span>
+        <span className="truncate">
+          {current ? current.name : "Select building"}
+        </span>
         <ChevronDown size={14} className="shrink-0 text-ink-400" />
       </button>
       {open && (
@@ -162,7 +186,9 @@ function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
                 onClick={() => setOpen(false)}
                 className={clsx(
                   "flex items-center gap-2.5 px-3.5 py-2 text-[13px] hover:bg-ink-50 dark:hover:bg-ink-800",
-                  b.id === buildingId ? "bg-primary-500/10 font-medium text-primary-700" : "text-ink-700 dark:text-ink-200"
+                  b.id === buildingId
+                    ? "bg-primary-500/10 font-medium text-primary-700"
+                    : "text-ink-700 dark:text-ink-200",
                 )}
               >
                 <Building2 size={15} /> {b.name}
@@ -175,23 +201,42 @@ function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
   );
 }
 
-function SidebarProfile({ dark, toggle, collapsed }: { dark: boolean; toggle: () => void; collapsed: boolean }) {
+function SidebarProfile({
+  dark,
+  toggle,
+  collapsed,
+}: {
+  dark: boolean;
+  toggle: () => void;
+  collapsed: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   return (
     <div className="relative mt-auto border-t border-ink-100 p-2 dark:border-ink-800">
       <div
-        className={clsx("flex items-center gap-2 rounded-xl p-1.5 transition hover:bg-ink-50 dark:hover:bg-ink-800", collapsed && "justify-center")}
+        className={clsx(
+          "flex items-center gap-2 rounded-xl p-1.5 transition hover:bg-ink-50 dark:hover:bg-ink-800",
+          collapsed && "justify-center",
+        )}
       >
-        <button className="flex min-w-0 items-center gap-2" onClick={() => setOpen((v) => !v)} aria-label="Open profile menu">
+        <button
+          className="flex min-w-0 items-center gap-2"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Open profile menu"
+        >
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-100 text-[13px] font-medium text-primary-700 dark:bg-primary-800 dark:text-primary-200">
             {user?.avatarInitials}
           </span>
           {!collapsed && (
             <div className="min-w-0 flex-1 text-left">
-              <p className="truncate text-[12px] font-medium leading-tight text-ink-900 dark:text-ink-50">{user?.name}</p>
-              <p className="truncate text-[11px] capitalize leading-tight text-ink-400">{user?.role.replace("_", " ")}</p>
+              <p className="truncate text-[12px] font-medium leading-tight text-ink-900 dark:text-ink-50">
+                {user?.name}
+              </p>
+              <p className="truncate text-[11px] capitalize leading-tight text-ink-400">
+                {user?.role.replace("_", " ")}
+              </p>
             </div>
           )}
         </button>
@@ -242,32 +287,77 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
     { to: "/help", icon: <HelpCircle size={18} />, label: "Help" },
   ];
 
-  const buildingGroups: { title?: string; items: { to: string; icon: React.ReactNode; label: string }[] }[] = base
+  const buildingGroups: {
+    title?: string;
+    items: { to: string; icon: React.ReactNode; label: string }[];
+  }[] = base
     ? [
         {
           items: [
-            { to: base, icon: <LayoutDashboard size={18} />, label: "Dashboard" },
-            { to: `${base}/floors/floor-1`, icon: <LayoutGrid size={18} />, label: "Heatmap" },
-            { to: `${base}/registry`, icon: <DoorOpen size={18} />, label: "All rooms" },
+            {
+              to: base,
+              icon: <LayoutDashboard size={18} />,
+              label: "Dashboard",
+            },
+            {
+              to: `${base}/floors/floor-1`,
+              icon: <LayoutGrid size={18} />,
+              label: "Heatmap",
+            },
+            {
+              to: `${base}/registry`,
+              icon: <DoorOpen size={18} />,
+              label: "All rooms",
+            },
           ],
         },
         {
           title: "AI Center",
           items: [
-            { to: `${base}/thermal`, icon: <Cpu size={18} />, label: "Thermal models" },
-            { to: `${base}/mpc`, icon: <Cpu size={18} />, label: "MPC optimizer" },
-            { to: `${base}/anomalies`, icon: <AlertTriangle size={18} />, label: "Anomalies" },
-            { to: `${base}/diagnoses`, icon: <Activity size={18} />, label: "Diagnoses" },
+            {
+              to: `${base}/thermal`,
+              icon: <Cpu size={18} />,
+              label: "Thermal models",
+            },
+            {
+              to: `${base}/mpc`,
+              icon: <Cpu size={18} />,
+              label: "MPC optimizer",
+            },
+            {
+              to: `${base}/anomalies`,
+              icon: <AlertTriangle size={18} />,
+              label: "Anomalies",
+            },
+            {
+              to: `${base}/diagnoses`,
+              icon: <Activity size={18} />,
+              label: "Diagnoses",
+            },
           ],
         },
         {
           items: [
-            { to: `${base}/alerts`, icon: <BellRing size={18} />, label: "Alerts" },
-            { to: `${base}/reports`, icon: <FileBarChart size={18} />, label: "Reports" },
+            {
+              to: `${base}/alerts`,
+              icon: <BellRing size={18} />,
+              label: "Alerts",
+            },
+            {
+              to: `${base}/reports`,
+              icon: <FileBarChart size={18} />,
+              label: "Reports",
+            },
           ],
         },
         {
-          items: [{ to: `${base}/settings`, icon: <Settings size={18} />, label: "Settings" }],
+          items: [
+            {
+              to: `${base}/settings`,
+              icon: <Settings size={18} />,
+              label: "Settings",
+            },
+          ],
         },
       ]
     : [];
@@ -283,7 +373,9 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
             className={({ isActive }) =>
               clsx(
                 "flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition",
-                isActive ? "bg-primary-500 text-white" : "text-ink-600 hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800"
+                isActive
+                  ? "bg-primary-500 text-white"
+                  : "text-ink-600 hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800",
               )
             }
             title={collapsed ? it.label : undefined}
@@ -302,7 +394,12 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
         buildingGroups.map((g, gi) => (
           <div key={gi}>
             {g.title && (
-              <p className={clsx("px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-ink-400", collapsed && "hidden")}>
+              <p
+                className={clsx(
+                  "px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-ink-400",
+                  collapsed && "hidden",
+                )}
+              >
                 {g.title}
               </p>
             )}
@@ -317,7 +414,7 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
                       "flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition",
                       isActive
                         ? "bg-primary-500 text-white"
-                        : "text-ink-600 hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800"
+                        : "text-ink-600 hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800",
                     )
                   }
                   title={collapsed ? it.label : undefined}
@@ -361,14 +458,27 @@ export default function AppLayout() {
       <aside
         className={clsx(
           "flex shrink-0 flex-col border-r border-ink-100 bg-white transition-[width] dark:border-ink-800 dark:bg-ink-950 dark:bg-[#1b1a17]",
-          collapsed ? "w-[68px]" : "w-60"
+          collapsed ? "w-[68px]" : "w-60",
         )}
       >
-        <div className={clsx("flex items-center gap-2 px-3 pt-3.5 pb-4", collapsed && "justify-center")}>
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white">
-            <Zap size={18} />
-          </span>
-          {!collapsed && <span className="text-[16px] font-medium dark:text-white">DynamIQ</span>}
+        <div
+          className={clsx(
+            "flex items-center gap-2 px-3 pt-3.5 pb-4",
+            collapsed && "justify-center",
+          )}
+        >
+          <img
+            src="/logo_dynamIQ_icon.png"
+            alt=""
+            className="h-8 w-8 shrink-0"
+          />
+          {!collapsed && (
+            <img
+              src="/logo_dynamIQ_name.png"
+              alt="DynamIQ"
+              className="h-8 w-auto"
+            />
+          )}
         </div>
         <Sidebar collapsed={collapsed} />
         <SidebarProfile dark={dark} toggle={toggle} collapsed={collapsed} />
@@ -401,10 +511,17 @@ export default function AppLayout() {
             <span
               className={clsx(
                 "flex items-center gap-1.5",
-                mpcRunning ? "text-teal-700 dark:text-teal-300" : "text-ink-400"
+                mpcRunning
+                  ? "text-teal-700 dark:text-teal-300"
+                  : "text-ink-400",
               )}
             >
-              <span className={clsx("h-1.5 w-1.5 rounded-full", mpcRunning ? "bg-teal-500" : "bg-ink-300")} />
+              <span
+                className={clsx(
+                  "h-1.5 w-1.5 rounded-full",
+                  mpcRunning ? "bg-teal-500" : "bg-ink-300",
+                )}
+              />
               MPC {mpcRunning ? "active" : "paused"}
             </span>
             <span className="flex items-center gap-1.5 text-ink-500 dark:text-ink-300">
@@ -416,7 +533,7 @@ export default function AppLayout() {
                 "ml-auto flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition",
                 mpcRunning
                   ? "bg-white text-red-600 hover:bg-red-50 dark:bg-ink-900 dark:hover:bg-red-950"
-                  : "bg-white text-teal-600 hover:bg-teal-50 dark:bg-ink-900 dark:hover:bg-teal-950"
+                  : "bg-white text-teal-600 hover:bg-teal-50 dark:bg-ink-900 dark:hover:bg-teal-950",
               )}
             >
               {mpcRunning ? <Pause size={13} /> : <Play size={13} />}
