@@ -157,7 +157,7 @@ function NotificationBell({ buildingId }: { buildingId: string | undefined }) {
           <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-lg dark:border-ink-800 dark:bg-ink-900">
             <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3 dark:border-ink-800">
               <p className="text-[14px] font-medium dark:text-white">
-                Alerts
+                Notifications
               </p>
               <span className="rounded-full bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-700">
                 {unreadCount} {unreadCount === 1 ? "alert" : "alerts"}
@@ -401,7 +401,7 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
             {
               to: `${base}/alerts`,
               icon: <BellRing size={18} />,
-              label: "Alerts",
+              label: "Notifications",
             },
             {
               to: `${base}/reports`,
