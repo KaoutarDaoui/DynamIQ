@@ -1,34 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   NavLink,
   Link,
   Outlet,
+  useLocation,
   useNavigate,
   useParams,
 } from "react-router-dom";
 import {
-  Zap,
-  Search,
   Sun,
   Moon,
   Bell,
-  ChevronRight,
   ChevronDown,
   LayoutDashboard,
-  Building2,
-  LayoutGrid,
-  DoorOpen,
-  Cpu,
+  Thermometer,
   AlertTriangle,
-  BellRing,
-  FileBarChart,
   Settings,
   HelpCircle,
-  Activity,
   LogOut,
-  Play,
-  Pause,
-  Timer,
+  Building2,
 } from "lucide-react";
 import clsx from "clsx";
 import { notifications, buildings as mockBuildings } from "../data/mock";
@@ -44,69 +34,7 @@ function useTheme() {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("dynamiq-theme", dark ? "dark" : "light");
   }, [dark]);
-  return { dark, toggle: () => setDark((d) => !d) };
-}
-
-function SearchInput({ buildings }: { buildings: Building[] }) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-
-  const results = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    if (!term) return [];
-    const b = buildings
-      .filter((x) => x.name.toLowerCase().includes(term))
-      .map((x) => ({ to: `/b/${x.id}`, label: x.name, sub: "Building" }));
-    return b.slice(0, 8);
-  }, [q, buildings]);
-
-  return (
-    <div className="relative mx-2 hidden flex-1 max-w-md md:block">
-      <div className="flex items-center gap-2 rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800">
-        <Search size={15} className="shrink-0 text-ink-400" />
-        <input
-          className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-ink-400 dark:text-ink-100"
-          placeholder="Search buildings, rooms, floors…"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-        />
-      </div>
-      {open && q.trim() && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-ink-100 bg-white py-1 shadow-lg dark:border-ink-800 dark:bg-ink-900">
-            {results.length === 0 && (
-              <p className="px-3.5 py-3 text-[13px] text-ink-400">
-                No results for "{q}"
-              </p>
-            )}
-            {results.map((r) => (
-              <Link
-                key={`${r.sub}-${r.label}`}
-                to={r.to}
-                onClick={() => {
-                  setOpen(false);
-                  setQ("");
-                }}
-                className="flex items-center justify-between px-3.5 py-2 text-[13px] hover:bg-ink-50 dark:hover:bg-ink-800"
-              >
-                <span className="font-medium text-ink-800 dark:text-ink-100">
-                  {r.label}
-                </span>
-                <span className="text-[11px] uppercase text-ink-400">
-                  {r.sub}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
+  return { dark, toggle: () => setDark((value) => !value) };
 }
 
 function NotificationBell() {
@@ -115,11 +43,11 @@ function NotificationBell() {
     <div className="relative">
       <button
         className="rounded-lg p-2 text-ink-500 transition hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((value) => !value)}
         aria-label="Notifications"
       >
         <Bell size={18} />
-        <span className="absolute right-1.5 top-1.5 flex h-2 w-2 rounded-full bg-red-500" />
+        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
       </button>
       {open && (
         <>
@@ -134,12 +62,14 @@ function NotificationBell() {
               </span>
             </div>
             <div className="divide-y divide-ink-100 dark:divide-ink-800">
-              {notifications.map((n) => (
-                <div key={n.id} className="px-4 py-3">
+              {notifications.map((notification) => (
+                <div key={notification.id} className="px-4 py-3">
                   <p className="text-[13px] font-medium text-ink-900 dark:text-ink-50">
-                    {n.title}
+                    {notification.title}
                   </p>
-                  <p className="text-[12px] text-ink-400">{n.time}</p>
+                  <p className="text-[12px] text-ink-400">
+                    {notification.time}
+                  </p>
                 </div>
               ))}
             </div>
@@ -153,19 +83,19 @@ function NotificationBell() {
 function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
   const { buildingId } = useParams();
   const [open, setOpen] = useState(false);
-  const current = buildings.find((b) => b.id === buildingId);
-
+  const current = buildings.find((building) => building.id === buildingId);
   return (
     <div className="relative">
       <button
-        className="flex items-center gap-2 rounded-xl border border-ink-100 bg-ink-50 px-3 py-2 text-[13px] font-medium text-ink-800 transition hover:border-primary-300 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-100"
-        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 rounded-full bg-transparent px-3 py-2 text-[13px] font-medium text-ink-700 transition hover:bg-white dark:text-ink-200 dark:hover:bg-ink-900"
+        onClick={() => setOpen((value) => !value)}
+        aria-label="Select building"
       >
-        <Building2 size={15} className="shrink-0 text-primary-500" />
-        <span className="truncate">
+        <Building2 size={16} className="shrink-0 text-ink-500" />
+        <span className="max-w-40 truncate">
           {current ? current.name : "Select building"}
         </span>
-        <ChevronDown size={14} className="shrink-0 text-ink-400" />
+        <ChevronDown size={16} className="shrink-0 text-ink-300" />
       </button>
       {open && (
         <>
@@ -174,24 +104,25 @@ function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
             <Link
               to="/"
               onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 px-3.5 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 dark:text-ink-200 dark:hover:bg-ink-800"
+              className="block px-3.5 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 dark:text-ink-200 dark:hover:bg-ink-800"
             >
-              <LayoutGrid size={15} /> All buildings
+              All buildings
             </Link>
             <div className="my-1 h-px bg-ink-100 dark:bg-ink-800" />
-            {buildings.map((b) => (
+            {buildings.map((building) => (
               <Link
-                key={b.id}
-                to={`/b/${b.id}`}
+                key={building.id}
+                to={`/b/${building.id}`}
                 onClick={() => setOpen(false)}
                 className={clsx(
                   "flex items-center gap-2.5 px-3.5 py-2 text-[13px] hover:bg-ink-50 dark:hover:bg-ink-800",
-                  b.id === buildingId
+                  building.id === buildingId
                     ? "bg-primary-500/10 font-medium text-primary-700"
                     : "text-ink-700 dark:text-ink-200",
                 )}
               >
-                <Building2 size={15} /> {b.name}
+                <Building2 size={15} />
+                {building.name}
               </Link>
             ))}
           </div>
@@ -201,244 +132,227 @@ function BuildingSwitcher({ buildings }: { buildings: Building[] }) {
   );
 }
 
-function SidebarProfile({
-  dark,
-  toggle,
-  collapsed,
-}: {
-  dark: boolean;
-  toggle: () => void;
-  collapsed: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+type RailLink = {
+  key: string;
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  end?: boolean;
+};
+function RailLink({ item }: { item: RailLink }) {
   return (
-    <div className="relative mt-auto border-t border-ink-100 p-2 dark:border-ink-800">
-      <div
-        className={clsx(
-          "flex items-center gap-2 rounded-xl p-1.5 transition hover:bg-ink-50 dark:hover:bg-ink-800",
-          collapsed && "justify-center",
-        )}
-      >
-        <button
-          className="flex min-w-0 items-center gap-2"
-          onClick={() => setOpen((v) => !v)}
-          aria-label="Open profile menu"
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-100 text-[13px] font-medium text-primary-700 dark:bg-primary-800 dark:text-primary-200">
-            {user?.avatarInitials}
-          </span>
-          {!collapsed && (
-            <div className="min-w-0 flex-1 text-left">
-              <p className="truncate text-[12px] font-medium leading-tight text-ink-900 dark:text-ink-50">
-                {user?.name}
-              </p>
-              <p className="truncate text-[11px] capitalize leading-tight text-ink-400">
-                {user?.role.replace("_", " ")}
-              </p>
-            </div>
-          )}
-        </button>
-        <button
-          className="shrink-0 rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800"
-          onClick={toggle}
-          aria-label="Toggle theme"
-        >
-          {dark ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
-      </div>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-30 mb-1 w-44 overflow-hidden rounded-xl border border-ink-100 bg-white py-1 shadow-lg dark:border-ink-800 dark:bg-ink-900">
-            <button
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-ink-700 hover:bg-ink-50 dark:text-ink-200 dark:hover:bg-ink-800"
-              onClick={() => {
-                setOpen(false);
-                navigate(`/b/esi-algiers/settings`);
-              }}
-            >
-              <Settings size={15} /> Profile & settings
-            </button>
-            <button
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
-              onClick={() => {
-                setOpen(false);
-                signOut();
-                navigate("/login");
-              }}
-            >
-              <LogOut size={15} /> Sign out
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+    <NavLink
+      to={item.to}
+      end={item.end}
+      title={item.label}
+      aria-label={item.label}
+      className={({ isActive }) =>
+        clsx(
+          "flex h-10 w-10 aspect-square items-center justify-center rounded-full transition",
+          isActive
+            ? "bg-primary-500 text-white"
+            : "text-ink-400 hover:bg-ink-50 dark:hover:bg-ink-800",
+        )
+      }
+    >
+      {item.icon}
+    </NavLink>
   );
 }
 
-function Sidebar({ collapsed }: { collapsed: boolean }) {
-  const { buildingId } = useParams();
-  const base = buildingId ? `/b/${buildingId}` : null;
-
-  const globalItems = [
-    { to: "/", icon: <Building2 size={18} />, label: "My Buildings" },
-    { to: "/help", icon: <HelpCircle size={18} />, label: "Help" },
-  ];
-
-  const buildingGroups: {
-    title?: string;
-    items: { to: string; icon: React.ReactNode; label: string }[];
-  }[] = base
+function FloatingRail({
+  base,
+  dark,
+  toggleTheme,
+}: {
+  base: string | null;
+  dark: boolean;
+  toggleTheme: () => void;
+}) {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const links: RailLink[] = base
     ? [
         {
-          items: [
-            {
-              to: base,
-              icon: <LayoutDashboard size={18} />,
-              label: "Dashboard",
-            },
-            {
-              to: `${base}/floors/floor-1`,
-              icon: <LayoutGrid size={18} />,
-              label: "Heatmap",
-            },
-            {
-              to: `${base}/registry`,
-              icon: <DoorOpen size={18} />,
-              label: "All rooms",
-            },
-          ],
+          key: "dashboard",
+          to: base,
+          label: "Dashboard",
+          icon: <LayoutDashboard size={18} strokeWidth={1.75} />,
+          end: true,
         },
         {
-          title: "AI Center",
-          items: [
-            {
-              to: `${base}/thermal`,
-              icon: <Cpu size={18} />,
-              label: "Thermal models",
-            },
-            {
-              to: `${base}/mpc`,
-              icon: <Cpu size={18} />,
-              label: "MPC optimizer",
-            },
-            {
-              to: `${base}/anomalies`,
-              icon: <AlertTriangle size={18} />,
-              label: "Anomalies",
-            },
-            {
-              to: `${base}/diagnoses`,
-              icon: <Activity size={18} />,
-              label: "Diagnoses",
-            },
-          ],
+          key: "thermal",
+          to: `${base}/thermal`,
+          label: "Thermal anomalies",
+          icon: <Thermometer size={18} strokeWidth={1.75} />,
         },
         {
-          items: [
-            {
-              to: `${base}/alerts`,
-              icon: <BellRing size={18} />,
-              label: "Alerts",
-            },
-            {
-              to: `${base}/reports`,
-              icon: <FileBarChart size={18} />,
-              label: "Reports",
-            },
-          ],
-        },
-        {
-          items: [
-            {
-              to: `${base}/settings`,
-              icon: <Settings size={18} />,
-              label: "Settings",
-            },
-          ],
+          key: "anomalies",
+          to: `${base}/anomalies`,
+          label: "Anomalies",
+          icon: <AlertTriangle size={18} strokeWidth={1.75} />,
         },
       ]
     : [];
-
+  const settings: RailLink = {
+    key: "settings",
+    to: base ? `${base}/settings` : "/settings",
+    label: base ? "Building settings" : "General settings",
+    icon: <Settings size={18} strokeWidth={1.75} />,
+  };
+  const generalDashboard: RailLink = {
+    key: "general-dashboard",
+    to: "/dashboard",
+    label: "General dashboard",
+    icon: <LayoutDashboard size={18} strokeWidth={1.75} />,
+    end: true,
+  };
+  const myBuildings: RailLink = {
+    key: "buildings",
+    to: "/",
+    label: "My buildings",
+    icon: <Building2 size={18} strokeWidth={1.75} />,
+    end: true,
+  };
   return (
-    <nav className="flex flex-1 flex-col gap-2 overflow-y-auto px-2">
-      <div className="flex flex-col gap-0.5">
-        {globalItems.map((it) => (
-          <NavLink
-            key={it.label}
-            to={it.to}
-            end={it.to === "/"}
-            className={({ isActive }) =>
-              clsx(
-                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition",
-                isActive
-                  ? "bg-primary-500 text-white"
-                  : "text-ink-600 hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800",
-              )
-            }
-            title={collapsed ? it.label : undefined}
-          >
-            {it.icon}
-            {!collapsed && <span className="truncate">{it.label}</span>}
-          </NavLink>
-        ))}
-      </div>
-
-      {!base ? (
-        <div className="mt-3 rounded-lg border border-dashed border-ink-200 p-3 text-[12px] text-ink-400 dark:border-ink-700">
-          {!collapsed && "Select a building from the list to access its tools."}
-        </div>
-      ) : (
-        buildingGroups.map((g, gi) => (
-          <div key={gi}>
-            {g.title && (
-              <p
-                className={clsx(
-                  "px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-ink-400",
-                  collapsed && "hidden",
-                )}
+    <nav
+      className="fixed bottom-6 left-6 z-40 flex flex-col items-center gap-2 rounded-[30px] border border-ink-100/60 bg-white/95 px-2.5 py-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.08)] backdrop-blur dark:border-ink-800/60 dark:bg-ink-900/95"
+      aria-label="Primary"
+    >
+      {!base && <RailLink item={generalDashboard} />}
+      <RailLink item={myBuildings} />
+      {links.map((item) => (
+        <RailLink key={item.key} item={item} />
+      ))}
+      <RailLink item={settings} />
+      <div className="my-1 h-5 border-t border-ink-100 dark:border-ink-800" />
+      <RailLink
+        item={{
+          key: "help",
+          to: "/help",
+          label: "Help center",
+          icon: <HelpCircle size={18} strokeWidth={1.75} />,
+        }}
+      />
+      <div className="relative">
+        <button
+          className="flex h-10 w-10 aspect-square items-center justify-center rounded-full bg-primary-100 text-[12px] font-medium text-primary-700 transition hover:brightness-95 dark:bg-primary-800 dark:text-primary-200"
+          onClick={() => setProfileOpen((value) => !value)}
+          aria-label="Profile"
+          title={user?.name}
+        >
+          {user?.avatarInitials}
+        </button>
+        {profileOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-30"
+              onClick={() => setProfileOpen(false)}
+            />
+            <div className="absolute left-full top-1/2 z-40 ml-3 w-52 -translate-y-1/2 overflow-hidden rounded-xl border border-ink-100 bg-white py-2 shadow-lg dark:border-ink-800 dark:bg-ink-900">
+              <div className="px-3.5 py-1.5">
+                <p className="truncate text-[13px] font-medium text-ink-900 dark:text-ink-50">
+                  {user?.name}
+                </p>
+                <p className="truncate text-[11px] capitalize text-ink-400">
+                  {user?.role.replace("_", " ")}
+                </p>
+              </div>
+              <button
+                className="mt-1 flex w-full items-center gap-2 px-3.5 py-2 text-[13px] text-ink-700 hover:bg-ink-50 dark:text-ink-200 dark:hover:bg-ink-800"
+                onClick={() => {
+                  setProfileOpen(false);
+                  toggleTheme();
+                }}
               >
-                {g.title}
-              </p>
-            )}
-            <div className="flex flex-col gap-0.5">
-              {g.items.map((it) => (
-                <NavLink
-                  key={it.label}
-                  to={it.to}
-                  end={it.to === base}
-                  className={({ isActive }) =>
-                    clsx(
-                      "flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition",
-                      isActive
-                        ? "bg-primary-500 text-white"
-                        : "text-ink-600 hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-800",
-                    )
-                  }
-                  title={collapsed ? it.label : undefined}
-                >
-                  {it.icon}
-                  {!collapsed && <span className="truncate">{it.label}</span>}
-                </NavLink>
-              ))}
+                {dark ? <Sun size={15} /> : <Moon size={15} />}
+                {dark ? "Light mode" : "Dark mode"}
+              </button>
             </div>
-          </div>
-        ))
-      )}
+          </>
+        )}
+      </div>
+      <button
+        className="flex h-10 w-10 aspect-square items-center justify-center rounded-full text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400"
+        onClick={() => {
+          signOut();
+          navigate("/login");
+        }}
+        aria-label="Log out"
+        title="Log out"
+      >
+        <LogOut size={18} strokeWidth={1.75} />
+      </button>
     </nav>
+  );
+}
+
+function BuildingTabs({ base }: { base: string }) {
+  const { pathname } = useLocation();
+  const groups = [
+    {
+      label: "Dashboard",
+      links: [
+        { to: base, label: "Dashboard", end: true },
+        { to: `${base}/floors/floor-1`, label: "Heatmap" },
+        { to: `${base}/registry`, label: "All rooms" },
+      ],
+    },
+    {
+      label: "Thermal anomalies",
+      links: [
+        { to: `${base}/thermal`, label: "Thermal anomalies" },
+        { to: `${base}/mpc`, label: "MPC optimizer" },
+      ],
+    },
+    {
+      label: "Anomalies",
+      links: [
+        { to: `${base}/anomalies`, label: "Anomalies" },
+        { to: `${base}/diagnoses`, label: "Diagnoses" },
+        { to: `${base}/alerts`, label: "Alerts" },
+        { to: `${base}/reports`, label: "Reports" },
+      ],
+    },
+  ];
+  const activeGroup =
+    groups.find((group) =>
+      group.links.some(
+        (link) =>
+          pathname === link.to ||
+          (!link.end && pathname.startsWith(`${link.to}/`)),
+      ),
+    ) ?? groups[0];
+  return (
+    <div className="absolute left-1/2 flex w-fit max-w-[calc(100%-2rem)] min-w-0 -translate-x-1/2 items-center justify-center gap-1 overflow-x-auto rounded-full border border-ink-100/60 bg-white/95 px-2 py-1.5 shadow-[0_4px_20px_rgba(0,0,0,0.08)] backdrop-blur dark:border-ink-800/60 dark:bg-ink-900/95">
+      {activeGroup.links.map((link) => (
+        <NavLink
+          key={link.to}
+          to={link.to}
+          end={link.end}
+          className={({ isActive }) =>
+            clsx(
+              "whitespace-nowrap rounded-full px-3 py-2 text-[13px] font-medium transition",
+              isActive
+                ? "bg-primary-500 text-white"
+                : "text-ink-500 hover:bg-ink-50 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800",
+            )
+          }
+        >
+          {link.label}
+        </NavLink>
+      ))}
+    </div>
   );
 }
 
 export default function AppLayout() {
   const { dark, toggle } = useTheme();
-  const [collapsed, setCollapsed] = useState(false);
   const { buildingId } = useParams();
-  const { orgId } = useAuth();
-  const [mpcRunning, setMpcRunning] = useState(true);
+  const { orgId, user } = useAuth();
   const [buildings, setBuildings] = useState<Building[]>(mockBuildings);
-
+  const base = buildingId ? `/b/${buildingId}` : null;
   useEffect(() => {
     let cancelled = false;
     fetchOrgBuildings(orgId ?? undefined)
@@ -452,97 +366,33 @@ export default function AppLayout() {
       cancelled = true;
     };
   }, [orgId]);
-
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f5f4f1] dark:bg-[#161512]">
-      <aside
-        className={clsx(
-          "flex shrink-0 flex-col border-r border-ink-100 bg-white transition-[width] dark:border-ink-800 dark:bg-ink-950 dark:bg-[#1b1a17]",
-          collapsed ? "w-[68px]" : "w-60",
-        )}
-      >
-        <div
-          className={clsx(
-            "flex items-center gap-2 px-3 pt-3.5 pb-4",
-            collapsed && "justify-center",
-          )}
-        >
-          <img
-            src="/logo_dynamIQ_icon.png"
-            alt=""
-            className="h-8 w-8 shrink-0"
-          />
-          {!collapsed && (
+    <div className="relative flex h-screen overflow-hidden bg-[#EEEEF2] dark:bg-[#161512]">
+      <FloatingRail base={base} dark={dark} toggleTheme={toggle} />
+      <div className="flex min-w-0 flex-1 flex-col pl-24">
+        <header className="relative flex h-20 shrink-0 items-center gap-4 px-6 pt-4">
+          <div className="-ml-24 flex shrink-0 items-center gap-3">
+            <img src="/logo_dynamIQ_icon.png" alt="" className="h-7 w-7" />
             <img
               src="/logo_dynamIQ_name.png"
               alt="DynamIQ"
-              className="h-8 w-auto"
+              className="h-10 w-auto"
             />
-          )}
-        </div>
-        <Sidebar collapsed={collapsed} />
-        <SidebarProfile dark={dark} toggle={toggle} collapsed={collapsed} />
-        <button
-          className="m-2 flex items-center justify-center gap-2 rounded-lg border border-ink-100 py-1.5 text-[12px] text-ink-400 hover:bg-ink-50 dark:border-ink-800 dark:hover:bg-ink-800"
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          {collapsed ? <ChevronRight size={14} /> : <>Collapse</>}
-        </button>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-ink-100 bg-white px-4 dark:border-ink-800 dark:bg-[#1b1a17]">
-          <div className="flex min-w-0 items-center gap-2">
+          </div>
+          {base && <BuildingTabs base={base} />}
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <BuildingSwitcher buildings={buildings} />
-          </div>
-
-          <SearchInput buildings={buildings} />
-
-          <div className="flex items-center gap-1.5">
             <NotificationBell />
-          </div>
-        </header>
-
-        {buildingId && (
-          <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-ink-100 bg-ink-50/60 px-4 py-2 text-[12px] dark:border-ink-800 dark:bg-ink-800/30">
-            <span className="flex items-center gap-1.5 font-medium text-ink-700 dark:text-ink-200">
-              <Zap size={13} className="text-primary-500" /> Optimization
-            </span>
-            <span
-              className={clsx(
-                "flex items-center gap-1.5",
-                mpcRunning
-                  ? "text-teal-700 dark:text-teal-300"
-                  : "text-ink-400",
-              )}
-            >
-              <span
-                className={clsx(
-                  "h-1.5 w-1.5 rounded-full",
-                  mpcRunning ? "bg-teal-500" : "bg-ink-300",
-                )}
-              />
-              MPC {mpcRunning ? "active" : "paused"}
-            </span>
-            <span className="flex items-center gap-1.5 text-ink-500 dark:text-ink-300">
-              <Timer size={12} /> Next calibration in 3 h · Last run 06:00
-            </span>
             <button
-              onClick={() => setMpcRunning((v) => !v)}
-              className={clsx(
-                "ml-auto flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition",
-                mpcRunning
-                  ? "bg-white text-red-600 hover:bg-red-50 dark:bg-ink-900 dark:hover:bg-red-950"
-                  : "bg-white text-teal-600 hover:bg-teal-50 dark:bg-ink-900 dark:hover:bg-teal-950",
-              )}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-[11px] font-medium text-primary-700 transition hover:brightness-95 dark:bg-primary-800 dark:text-primary-200"
+              aria-label="Profile"
+              title={user?.name}
             >
-              {mpcRunning ? <Pause size={13} /> : <Play size={13} />}
-              {mpcRunning ? "Pause MPC" : "Start MPC"}
+              {user?.avatarInitials}
             </button>
           </div>
-        )}
-
-        <main className="flex-1 overflow-y-auto app-scroll p-6">
+        </header>
+        <main className="flex-1 overflow-y-auto app-scroll px-8 py-6">
           <Outlet />
         </main>
       </div>

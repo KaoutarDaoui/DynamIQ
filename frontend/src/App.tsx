@@ -36,8 +36,16 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/onboarding" element={<OnboardingWizard />} />
 
-          <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+          <Route
+            element={
+              <RequireAuth>
+                <AppLayout />
+              </RequireAuth>
+            }
+          >
             <Route path="/" element={<Portfolio />} />
+            <Route path="/dashboard" element={<ComingSoon />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/help" element={<Help />} />
 
             <Route path="/b/:buildingId">
@@ -46,7 +54,10 @@ export default function App() {
               <Route path="rooms/:roomId" element={<RoomDetail />} />
               <Route path="registry" element={<AcRegistry />} />
               <Route path="anomalies" element={<Anomalies />} />
-              <Route path="anomalies/:anomalyId" element={<DiagnosisDetail />} />
+              <Route
+                path="anomalies/:anomalyId"
+                element={<DiagnosisDetail />}
+              />
               <Route path="alerts" element={<Alerts />} />
               <Route path="reports" element={<Reports />} />
               <Route path="audit" element={<AuditLogPage />} />
