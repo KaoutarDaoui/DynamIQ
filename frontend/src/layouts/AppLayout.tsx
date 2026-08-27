@@ -29,10 +29,10 @@ import {
   Cpu as CpuIcon,
 } from "lucide-react";
 import clsx from "clsx";
-import { notifications, buildings as mockBuildings } from "../data/mock";
-import { fetchOrgBuildings, toPortfolioBuilding, fetchThermalModels, fetchMpcRooms, ThermalApiError } from "../lib/api";
+import { buildings as mockBuildings } from "../data/mock";
+import { fetchOrgBuildings, toPortfolioBuilding, fetchThermalModels, fetchMpcRooms, fetchAlerts, ThermalApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import type { Building, ThermalModelRoom, MpcRoomSummary } from "../types";
+import type { Building, ThermalModelRoom, MpcRoomSummary, LiveAlert } from "../types";
 
 function useTheme() {
   const [dark, setDark] = useState(
@@ -107,8 +107,38 @@ function SearchInput({ buildings }: { buildings: Building[] }) {
   );
 }
 
-function NotificationBell() {
+function NotificationBell({ buildingId }: { buildingId: string | undefined }) {
   const [open, setOpen] = useState(false);
+  const [alerts, setAlerts] = useState<LiveAlert[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!buildingId) {
+      setAlerts([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    fetchAlerts(buildingId)
+      .then((data) => {
+        if (!cancelled) {
+          setAlerts(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAlerts([]);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingId]);
+
+  const unreadCount = alerts.length;
+
   return (
     <div className="relative">
       <button
@@ -117,7 +147,9 @@ function NotificationBell() {
         aria-label="Notifications"
       >
         <Bell size={18} />
-        <span className="absolute right-1.5 top-1.5 flex h-2 w-2 rounded-full bg-red-500" />
+        {unreadCount > 0 && (
+          <span className="absolute right-1.5 top-1.5 flex h-2 w-2 rounded-full bg-red-500" />
+        )}
       </button>
       {open && (
         <>
@@ -125,21 +157,40 @@ function NotificationBell() {
           <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-lg dark:border-ink-800 dark:bg-ink-900">
             <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3 dark:border-ink-800">
               <p className="text-[14px] font-medium dark:text-white">
-                Notifications
+                Alerts
               </p>
               <span className="rounded-full bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-700">
-                {notifications.length} new
+                {unreadCount} {unreadCount === 1 ? "alert" : "alerts"}
               </span>
             </div>
-            <div className="divide-y divide-ink-100 dark:divide-ink-800">
-              {notifications.map((n) => (
-                <div key={n.id} className="px-4 py-3">
-                  <p className="text-[13px] font-medium text-ink-900 dark:text-ink-50">
-                    {n.title}
-                  </p>
-                  <p className="text-[12px] text-ink-400">{n.time}</p>
-                </div>
-              ))}
+            <div className="divide-y divide-ink-100 dark:divide-ink-800 max-h-[400px] overflow-y-auto">
+              {loading ? (
+                <div className="px-4 py-6 text-center text-[13px] text-ink-400">Loading…</div>
+              ) : alerts.length === 0 ? (
+                <div className="px-4 py-6 text-center text-[13px] text-ink-400">No alerts</div>
+              ) : (
+                alerts.map((a) => (
+                  <div key={a.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium text-ink-900 dark:text-ink-50 truncate">
+                          {a.roomLabel} · {a.cause}
+                        </p>
+                        <p className="text-[12px] text-ink-400 truncate">{a.message}</p>
+                      </div>
+                      <span className="text-[11px] text-ink-400 shrink-0">{formatTimeAgo(a.sentAt)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-400">
+                      <span className="flex items-center gap-1 rounded-full bg-ink-50 px-2 py-0.5 dark:bg-ink-800">
+                        <span className="font-medium">{a.causeConfidence}</span>
+                      </span>
+                      <span className="flex items-center gap-1 rounded-full bg-ink-50 px-2 py-0.5 dark:bg-ink-800">
+                        {a.channel}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </>
@@ -555,7 +606,7 @@ export default function AppLayout() {
           <SearchInput buildings={buildings} />
 
           <div className="flex items-center gap-1.5">
-            <NotificationBell />
+            <NotificationBell buildingId={buildingId} />
           </div>
         </header>
 
