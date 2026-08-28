@@ -208,7 +208,7 @@ export default function Anomalies() {
   const [hoverId, setHoverId] = useState<number | null>(null);
   const [hoverFilter, setHoverFilter] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [datePreset, setDatePreset] = useState<"24h" | "7d" | "30d" | "custom">("7d");
+  const [datePreset, setDatePreset] = useState<"24h" | "3d" | "7d" | "30d" | "custom">("3d");
 
   const clearFilters = () => {
     setSev("all");
@@ -219,7 +219,7 @@ export default function Anomalies() {
     setSearch("");
     setFrom("");
     setTo("");
-    setDatePreset("7d");
+    setDatePreset("3d");
   };
 
   const clearSearch = () => setSearch("");
@@ -253,7 +253,7 @@ export default function Anomalies() {
   const matchesHover = (a: LiveAnomalyOverview): boolean => {
     switch (hoverFilter) {
       case "open":
-        return a.status === "open";
+        return a.status === "open" && a.anomalyType === "thermal_anomaly";
       case "diagnosed":
         return a.status === "diagnosed";
       case "resolved":
@@ -295,24 +295,32 @@ export default function Anomalies() {
     return () => clearInterval(id);
   }, []);
 
-  const filtered = useMemo(() => {
+  // The date window is the one filter that also governs the stat cards and
+  // the intensity chart above the table (see `windowed` below) — everything
+  // else (severity, status, cause, ...) only narrows the table itself.
+  const dateRange = useMemo(() => {
     const now = Date.now();
-    let fromTs: number | null = null;
-    let toTs: number | null = null;
-
-    if (datePreset !== "custom") {
-      if (datePreset === "24h") fromTs = now - 24 * 60 * 60 * 1000;
-      else if (datePreset === "7d") fromTs = now - 7 * 24 * 60 * 60 * 1000;
-      else if (datePreset === "30d") fromTs = now - 30 * 24 * 60 * 60 * 1000;
-      toTs = now;
-    } else {
-      fromTs = from ? +new Date(`${from}T00:00:00`) : null;
-      toTs = to ? +new Date(`${to}T23:59:59`) : null;
+    if (datePreset === "custom") {
+      return {
+        fromTs: from ? +new Date(`${from}T00:00:00`) : null,
+        toTs: to ? +new Date(`${to}T23:59:59`) : null,
+      };
     }
+    const days = datePreset === "24h" ? 1 : datePreset === "3d" ? 3 : datePreset === "7d" ? 7 : 30;
+    return { fromTs: now - days * 24 * 60 * 60 * 1000, toTs: now };
+  }, [datePreset, from, to]);
 
-    const q = search.trim().toLowerCase();
-    const list = (anomalies ?? []).filter((a) => {
+  const windowed = useMemo(() => {
+    const { fromTs, toTs } = dateRange;
+    return (anomalies ?? []).filter((a) => {
       const ts = +new Date(a.openedAt);
+      return (fromTs === null || ts >= fromTs) && (toTs === null || ts <= toTs);
+    });
+  }, [anomalies, dateRange]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = windowed.filter((a) => {
       const haystack = `${a.roomLabel} ${a.anomalyType} ${a.cause ?? ""} ${a.supervisorDecision ?? ""} ${a.status} ${a.severity}`.toLowerCase();
       return (
         (q === "" || haystack.includes(q)) &&
@@ -320,9 +328,7 @@ export default function Anomalies() {
         (status === "all" || a.status === status) &&
         (cause === "all" || a.cause === cause) &&
         (decision === "all" || a.supervisorDecision === decision) &&
-        (room === "all" || a.roomId === room) &&
-        (fromTs === null || ts >= fromTs) &&
-        (toTs === null || ts <= toTs)
+        (room === "all" || a.roomId === room)
       );
     });
     return [...list].sort((a, b) => {
@@ -330,7 +336,7 @@ export default function Anomalies() {
       if (sort === "oldest") return +new Date(a.openedAt) - +new Date(b.openedAt);
       return Math.abs(b.residualC ?? 0) - Math.abs(a.residualC ?? 0);
     });
-  }, [anomalies, sev, status, cause, decision, room, search, from, to, sort, datePreset]);
+  }, [windowed, sev, status, cause, decision, room, search, sort]);
 
   const PAGE_SIZE = 10;
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -355,7 +361,7 @@ export default function Anomalies() {
 
   const chartData = useMemo<AnomalyChartDatum[]>(
     () =>
-      (anomalies ?? [])
+      windowed
         .map((a) => {
           const residual = a.residualC !== null ? Math.abs(a.residualC) : 0;
           const threshold = a.thresholdC ?? 0;
@@ -376,28 +382,41 @@ export default function Anomalies() {
           };
         })
         .sort((x, y) => y.excess - x.excess),
-    [anomalies]
+    [windowed]
   );
   const chartPoints = chartData.slice(0, MAX_CHART_POINTS);
 
   const stats = useMemo(() => {
-    const list = anomalies ?? [];
-    const open = list.filter((a) => a.status === "open").length;
+    const list = windowed;
+    // sensor_fault / comfort_violation are never diagnosed by design (Agent
+    // 3 only reasons about thermal_anomaly's physical causes) -- counting
+    // them here would show a permanent, never-shrinking "awaiting
+    // diagnosis" number for anomalies that were never queued for one.
+    const open = list.filter((a) => a.status === "open" && a.anomalyType === "thermal_anomaly").length;
     const high = list.filter((a) => a.severity === "high").length;
     const avgExcess = list.length
       ? list.reduce((s, a) => s + ((a.residualC ?? 0) - (a.thresholdC ?? 0)), 0) / list.length
       : 0;
     return { total: list.length, open, high, avgExcess };
-  }, [anomalies]);
+  }, [windowed]);
 
   const selectCls = "rounded-lg border border-ink-200 bg-white px-2.5 py-2 text-[13px] text-ink-700 outline-none dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200";
   const dateInputCls = "rounded-lg border border-ink-200 bg-white px-2.5 py-2 text-[13px] text-ink-700 outline-none dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:[color-scheme:dark]";
+  const windowLabel =
+    datePreset === "24h" ? "last 24 hours" :
+    datePreset === "3d" ? "last 3 days" :
+    datePreset === "7d" ? "last 7 days" :
+    datePreset === "30d" ? "last 30 days" :
+    "the selected date range";
 
   return (
     <div className="mx-auto max-w-5xl">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-[20px] font-medium">Anomalies</h1>
+          <p className="mt-1 text-[13px] text-ink-400">
+            Showing {windowLabel} · change the Date filter below to widen or narrow this
+          </p>
         </div>
         <button
           onClick={() => setReloadKey((k) => k + 1)}
@@ -417,7 +436,10 @@ export default function Anomalies() {
 
       {!error && (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <p className="mt-6 text-[11px] font-medium uppercase tracking-wide text-ink-400">
+            {windowLabel[0].toUpperCase() + windowLabel.slice(1)}
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <StatCard
               label="Detected Anomalies" value={loading ? "—" : String(stats.total)}
               risk={stats.total === 0 ? "safe" : stats.total <= 2 ? "warn" : "danger"}
@@ -572,9 +594,10 @@ export default function Anomalies() {
               <select
                 className={selectCls}
                 value={datePreset}
-                onChange={(e) => setDatePreset(e.target.value as "24h" | "7d" | "30d" | "custom")}
+                onChange={(e) => setDatePreset(e.target.value as "24h" | "3d" | "7d" | "30d" | "custom")}
               >
                 <option value="24h">Last 24h</option>
+                <option value="3d">Last 3 days</option>
                 <option value="7d">Last 7 days</option>
                 <option value="30d">Last 30 days</option>
                 <option value="custom">Custom</option>

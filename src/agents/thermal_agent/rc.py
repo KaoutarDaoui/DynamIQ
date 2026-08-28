@@ -31,6 +31,25 @@ def one_step_ahead_rmse(r_k_per_w: float, c_j_per_k: float, t_measured_c: np.nda
     predicted = one_step_ahead_predictions(r_k_per_w, c_j_per_k, t_measured_c, t_ext_c, q_solar_w, q_occ_w, q_hvac_w, dt_s)
     return float(np.sqrt(np.mean((predicted - t_measured_c[1:]) ** 2)))
 
+def robust_one_step_ahead_rmse(r_k_per_w: float, c_j_per_k: float, t_measured_c: np.ndarray, t_ext_c: np.ndarray, q_solar_w: np.ndarray, q_occ_w: np.ndarray, q_hvac_w: np.ndarray, dt_s: float=constants.DT_SECONDS, trim_fraction: float=0.1) -> float:
+    """Like one_step_ahead_rmse, but excludes the largest `trim_fraction` of
+    residuals (by magnitude) before computing RMSE. The live sensor feed
+    injects faulty readings (spikes, dropouts) on purpose to exercise the
+    anomaly pipeline -- roughly 7% of samples -- and a plain RMSE computed
+    over a validation window that includes them is dominated by those few
+    huge residuals. That inflates rmse_validation and, downstream, the
+    anomaly threshold (3x RMSE) to the point genuine anomalies can never
+    exceed it. Trimming the worst ~10% (comfortably above the known fault
+    rate) keeps this an honest estimate of the model's real noise floor."""
+    predicted = one_step_ahead_predictions(r_k_per_w, c_j_per_k, t_measured_c, t_ext_c, q_solar_w, q_occ_w, q_hvac_w, dt_s)
+    residuals = predicted - t_measured_c[1:]
+    n = len(residuals)
+    if n == 0:
+        return 0.0
+    keep = max(1, int(np.ceil(n * (1.0 - trim_fraction))))
+    trimmed = np.sort(np.abs(residuals))[:keep]
+    return float(np.sqrt(np.mean(trimmed ** 2)))
+
 def _n_step_predictions(r_k_per_w: float, c_j_per_k: float, t_measured_c: np.ndarray, t_ext_c: np.ndarray, q_solar_w: np.ndarray, q_occ_w: np.ndarray, q_hvac_w: np.ndarray, horizon_steps: int, dt_s: float) -> tuple[np.ndarray, np.ndarray]:
     a = discretization_factor(r_k_per_w, c_j_per_k, dt_s)
     n = len(t_ext_c)

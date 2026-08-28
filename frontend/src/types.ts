@@ -194,6 +194,12 @@ export interface MpcScheduleSlot {
   actualTempC: number | null;
 }
 
+export interface MpcHistoryPoint {
+  ts: string;
+  actualTempC: number | null;
+  predictedTempC: number | null;
+}
+
 export interface MpcSchedule {
   roomId: string;
   roomLabel: string;
@@ -204,6 +210,7 @@ export interface MpcSchedule {
   tariffCurrencyPerKwh: number;
   carbonWeightLambda: number;
   slots: MpcScheduleSlot[];
+  history: MpcHistoryPoint[];
 }
 
 export type LiveAnomalyStatus = "open" | "diagnosed" | "resolved";
@@ -364,4 +371,13 @@ export interface HeatmapRoom {
   energyKwh24h: number;
   carbonGco2_24h: number;
   hasOpenAnomaly: boolean;
+}
+
+export interface SensorReadingPoint {
+  ts: string;
+  tempMeasuredC: number;
+  tempExtC: number;
+  qSolarW: number;
+  qOccW: number;
+  qHvacW: number;
 }

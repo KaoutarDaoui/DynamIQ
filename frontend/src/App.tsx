@@ -15,6 +15,7 @@ import Alerts from "./pages/Alerts";
 import Reports from "./pages/Reports";
 import AuditLogPage from "./pages/AuditLog";
 import Settings from "./pages/Settings";
+import Profile from "./pages/Profile";
 import Help from "./pages/Help";
 import Thermal from "./pages/Thermal";
 import Mpc from "./pages/Mpc";
@@ -46,11 +47,12 @@ export default function App() {
             <Route path="/" element={<Portfolio />} />
             <Route path="/dashboard" element={<ComingSoon />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/help" element={<Help />} />
 
             <Route path="/b/:buildingId">
               <Route index element={<Dashboard />} />
-              <Route path="floors/:floorId" element={<FloorView />} />
+              <Route path="floors/:floorId?" element={<FloorView />} />
               <Route path="rooms/:roomId" element={<RoomDetail />} />
               <Route path="registry" element={<AcRegistry />} />
               <Route path="anomalies" element={<Anomalies />} />

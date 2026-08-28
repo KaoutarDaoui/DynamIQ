@@ -38,6 +38,13 @@ export default function Thermal() {
     return () => controller.abort();
   }, [buildingId, reloadKey]);
 
+  // The sensor feed writes a new reading per room every 2 minutes; poll on
+  // the same cadence so room parameters reflect it without a manual refresh.
+  useEffect(() => {
+    const id = window.setInterval(() => setReloadKey((k) => k + 1), 120_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const calibrated = useMemo(() => (rooms ?? []).filter((r) => r.isCalibrated), [rooms]);
   const avgR = useMemo(
     () => (calibrated.length ? calibrated.reduce((s, r) => s + (r.rLumpedKPerW ?? 0), 0) / calibrated.length : null),
@@ -61,9 +68,12 @@ export default function Thermal() {
             RC parameters fitted by Agent 2 against real sensor history — live from the Thermal Agent, not mocked.
           </p>
         </div>
-        <SecondaryButton onClick={() => setReloadKey((k) => k + 1)} className="shrink-0">
-          <RefreshCw size={14} /> Refresh
-        </SecondaryButton>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <SecondaryButton onClick={() => setReloadKey((k) => k + 1)}>
+            <RefreshCw size={14} /> Refresh
+          </SecondaryButton>
+          <span className="text-[11px] text-ink-400">Auto-refreshes every 2 min</span>
+        </div>
       </div>
 
       {error && (

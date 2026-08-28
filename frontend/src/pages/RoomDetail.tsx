@@ -3,8 +3,8 @@ import { useParams, Link } from "react-router-dom";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { Minus, Plus, AlertTriangle } from "lucide-react";
 import clsx from "clsx";
-import { fetchAnomalies, fetchFloorHeatmap, fetchMpcSchedule, fetchThermalModels } from "../lib/api";
-import type { LiveAnomalyOverview, MpcSchedule, ThermalModelRoom } from "../types";
+import { fetchAnomalies, fetchFloorHeatmap, fetchMpcSchedule, fetchSensorReadings, fetchThermalModels } from "../lib/api";
+import type { LiveAnomalyOverview, MpcSchedule, SensorReadingPoint, ThermalModelRoom } from "../types";
 import { Card, CardHeader, StatusBadge, SecondaryButton, PrimaryButton } from "../components/ui";
 
 function isDark() {
@@ -24,6 +24,7 @@ export default function RoomDetail() {
   const [roomCarbonGco2, setRoomCarbonGco2] = useState<number | null>(null);
   const [hasOpenAnomaly, setHasOpenAnomaly] = useState(false);
   const [roomAnomalies, setRoomAnomalies] = useState<LiveAnomalyOverview[]>([]);
+  const [sensorReadings, setSensorReadings] = useState<SensorReadingPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [setpoint, setSetpoint] = useState<number | null>(null);
@@ -58,6 +59,12 @@ export default function RoomDetail() {
           } catch {
             // heatmap is best-effort
           }
+          try {
+            const readings = await fetchSensorReadings(buildingId, roomId, 48);
+            if (active) setSensorReadings(readings);
+          } catch {
+            // sensor history is best-effort
+          }
         }
       })
       .catch(() => {
@@ -78,6 +85,16 @@ export default function RoomDetail() {
       actualC: s.actualTempC,
     }));
   }, [schedule]);
+
+  const sensorChartData = useMemo(
+    () =>
+      sensorReadings.map((r) => ({
+        time: new Date(r.ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+        measuredC: r.tempMeasuredC,
+        extC: r.tempExtC,
+      })),
+    [sensorReadings]
+  );
 
   const status = hasOpenAnomaly ? "anomaly" : model?.isInstrumented ? "online" : "offline";
   const currentTarget = setpoint ?? schedule?.slots[schedule.slots.length - 1]?.setpointC ?? null;
@@ -130,6 +147,28 @@ export default function RoomDetail() {
           </p>
         </Card>
       </div>
+
+      {model.isInstrumented && (
+        <Card className="mt-5">
+          <CardHeader title="Sensor readings" subtitle="Raw measured room temperature vs outdoor temperature, last 48h — straight from sensor_readings" />
+          {sensorChartData.length > 0 ? (
+            <div className="h-64 px-2 pb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={sensorChartData} margin={{ left: 0, right: 12, top: 8, bottom: 0 }}>
+                  <XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#8c897d" }} minTickGap={40} />
+                  <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#8c897d" }} domain={["auto", "auto"]} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: isDark() ? "1px solid #3a392f" : "1px solid #e8e7e3", fontSize: 12, background: isDark() ? "#2a2925" : "#fff", color: isDark() ? "#f5f4f1" : "#23231f" }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" dataKey="measuredC" name="Measured °C" stroke="#ee6c1f" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="extC" name="Outdoor °C" stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="px-5 pb-6 text-[13px] text-ink-400">No sensor readings in the last 48h.</p>
+          )}
+        </Card>
+      )}
 
       <Card className="mt-5">
         <CardHeader title="24h MPC schedule" subtitle="Setpoint vs predicted temperature from the latest solve" />

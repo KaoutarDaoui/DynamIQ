@@ -59,12 +59,12 @@ def run_diagnosis_cycle(
     return results
 
 
-def run_calibration_cycle_if_due(engine: Engine, building_id: str, now: datetime | None = None) -> list[Any] | None:
+def run_calibration_cycle_if_due(engine: Engine, building_id: str, now: datetime | None = None, force_accept: bool = False) -> list[Any] | None:
     now = now or datetime.now(timezone.utc)
     last = db.fetch_last_calibration_time(engine, building_id)
     if last is not None and (now - last) < timedelta(hours=constants.CALIBRATION_INTERVAL_HOURS):
         return None
-    return thermal_calibrate.run_calibration_sweep(engine, building_id)
+    return thermal_calibrate.run_calibration_sweep(engine, building_id, force_accept=force_accept)
 
 
 def run_fast_loop_cycle(
@@ -84,15 +84,17 @@ def run_full_cycle(
     now: datetime | None = None,
     offline: bool = False,
     force_calibration: bool = False,
+    force_accept: bool = False,
+    run_fast_loop: bool = True,
 ) -> OrchestrationCycleResult:
     now = now or datetime.now(timezone.utc)
 
     calibration_results = (
-        thermal_calibrate.run_calibration_sweep(engine, building_id)
+        thermal_calibrate.run_calibration_sweep(engine, building_id, force_accept=force_accept)
         if force_calibration
-        else run_calibration_cycle_if_due(engine, building_id, now)
+        else run_calibration_cycle_if_due(engine, building_id, now, force_accept=force_accept)
     )
-    fast_loop_results = run_fast_loop_cycle(engine, building_id, occupied_by_room, now=now, offline=offline)
+    fast_loop_results = run_fast_loop_cycle(engine, building_id, occupied_by_room, now=now, offline=offline) if run_fast_loop else []
     diagnosis_results = run_diagnosis_cycle(engine, building_id)
 
     alerts_dispatched = [

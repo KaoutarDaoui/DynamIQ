@@ -40,11 +40,17 @@ def run_fast_loop_for_room(engine, room_id: str, occupied: np.ndarray, now: date
     if active_model is None:
         anomaly_result = run_anomaly_pipeline(engine, room_id, occupied=bool(occupied[0]))
         return FastLoopResult(room_id, False, 'no active rc_model_params (cold start)', None, None, anomaly_result)
-    latest = fetch_latest_sensor_readings(engine, room_id, n=1)
+    latest = fetch_latest_sensor_readings(engine, room_id, n=5)
     if len(latest.ts) == 0:
         anomaly_result = run_anomaly_pipeline(engine, room_id, occupied=bool(occupied[0]))
         return FastLoopResult(room_id, False, 'no sensor reading available', None, None, anomaly_result)
-    t_current_c = float(latest.temp_measured_c[-1])
+    # A single faulty reading (spikes, dropouts -- the live feed injects
+    # these on purpose to exercise the anomaly pipeline) used directly as
+    # MPC's starting temperature sends its entire predicted trajectory
+    # haywire for that solve. The median of the last few readings is robust
+    # to one outlier among them without needing to know *which* one is bad.
+    valid = [t for t in latest.temp_measured_c if constants.SENSOR_VALID_MIN_C <= t <= constants.SENSOR_VALID_MAX_C]
+    t_current_c = float(np.median(valid)) if valid else float(latest.temp_measured_c[-1])
     weather_fc = get_weather_forecast(building.latitude, building.longitude, horizon_hours=24, offline=offline, now=now)
     carbon_fc = get_carbon_forecast(building.country_code, horizon_hours=24, offline=offline, now=now)
     n = len(weather_fc.timestamps)
@@ -72,7 +78,15 @@ def run_fast_loop_for_building(engine, building_id: str, occupied_by_room: dict[
         if occupied is None:
             results.append(FastLoopResult(room_id, False, 'no occupancy schedule supplied', None, None, None))
             continue
-        results.append(run_fast_loop_for_room(engine, room_id, occupied, now=now, offline=offline))
+        try:
+            results.append(run_fast_loop_for_room(engine, room_id, occupied, now=now, offline=offline))
+        except Exception as exc:
+            # One room's solve failing (a transient weather-API glitch, a
+            # solver hiccup) shouldn't skip MPC for every other room in the
+            # building this cycle, nor abort the calling orchestration
+            # cycle before it gets to record anything -- that's exactly
+            # what creates unexplained gaps in "planned" history later.
+            results.append(FastLoopResult(room_id, False, f'fast loop failed: {exc!r}', None, None, None))
     return results
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:

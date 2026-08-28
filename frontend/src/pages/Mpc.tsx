@@ -74,6 +74,19 @@ export default function Mpc() {
     return schedule.slots.slice(0, n).map((s) => ({ ...s, hour: formatHm(s.slotTs) }));
   }, [schedule, horizon, slotIntervalMinutes]);
 
+  // The temperature chart also shows the real history leading up to "now"
+  // (fixed 3h window from the backend), separate from slotsForHorizon so
+  // the energy/carbon chart and totals below stay future-only.
+  const tempChartData = useMemo(() => {
+    if (!schedule) return [];
+    const history = schedule.history.map((h) => ({
+      hour: formatHm(h.ts),
+      predictedTempC: h.predictedTempC,
+      actualTempC: h.actualTempC,
+    }));
+    return [...history, ...slotsForHorizon];
+  }, [schedule, slotsForHorizon]);
+
   const totalKwh = useMemo(() => slotsForHorizon.reduce((sum, s) => sum + s.predictedKwh, 0), [slotsForHorizon]);
   const totalGco2 = useMemo(() => slotsForHorizon.reduce((sum, s) => sum + s.predictedGco2, 0), [slotsForHorizon]);
 
@@ -147,10 +160,10 @@ export default function Mpc() {
           </div>
 
           <Card className="mt-4">
-            <CardHeader title="Planned vs actual room temperature" subtitle={`${horizon} look-ahead · ${schedule.roomLabel} · "Actual" only appears once a slot's time has passed`} />
+            <CardHeader title="Planned vs actual room temperature" subtitle={`Past 3h actual + ${horizon} look-ahead · ${schedule.roomLabel}`} />
             <div className="h-72 px-2 pb-4">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={slotsForHorizon} margin={{ left: 0, right: 12, top: 8, bottom: 0 }}>
+                <LineChart data={tempChartData} margin={{ left: 0, right: 12, top: 8, bottom: 0 }}>
                   <XAxis dataKey="hour" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#8c897d" }} />
                   <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#8c897d" }} domain={["auto", "auto"]} />
                   <Tooltip

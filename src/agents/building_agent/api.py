@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlmodel import Session, func, select
+from sqlmodel import Session, func, select, text
 
 from agents.logging_config import configure_agent_logging
 from .auth import authenticate, create_session, delete_session, ensure_users_tables, get_user_by_token
@@ -225,6 +225,15 @@ def _slugify_building_id(session: Session, name: str) -> str:
     return candidate
 
 
+# The onboarding wizard doesn't collect latitude/longitude, so a building
+# created without them would otherwise get NULL coordinates -- harmless
+# until Agent 2's weather-dependent code (live sensor simulation, solar
+# gain, MPC) tries to use them and crashes on `round(None, 3)`. Default to
+# Algiers, matching this product's scoped deployment target (see README).
+_DEFAULT_LATITUDE = 36.749
+_DEFAULT_LONGITUDE = 3.033
+
+
 @app.post(
     "/buildings",
     response_model=BuildingResponse,
@@ -236,9 +245,14 @@ async def create_building(
     session: SessionDep,
 ) -> BuildingResponse:
     building_id = _slugify_building_id(session, payload.name)
+    data = payload.model_dump()
+    if data["latitude"] is None:
+        data["latitude"] = _DEFAULT_LATITUDE
+    if data["longitude"] is None:
+        data["longitude"] = _DEFAULT_LONGITUDE
     building = save_building(
         session,
-        Building(building_id=building_id, org_id=DEFAULT_ORG_ID, **payload.model_dump()),
+        Building(building_id=building_id, org_id=DEFAULT_ORG_ID, **data),
     )
     return BuildingResponse(
         building_id=building.building_id,
@@ -287,6 +301,49 @@ async def list_org_buildings(org_id: str, session: SessionDep) -> list[BuildingS
             )
         )
     return summaries
+
+
+# sensor_readings / rc_model_params / anomalies / mpc_schedules / diagnoses /
+# alerts belong to Agent 2/3's own SQLModel registry (thermal_agent.db), not
+# this one, and have no foreign key back to rooms -- deleting a building
+# only cascades buildings -> floors -> rooms -> room_adjacencies /
+# air_conditioners at the DB level. These tables are cleaned up by name
+# instead of importing Agent 2/3's models, per the "agents don't import each
+# other" rule -- they share the database, not each other's code.
+_ROOM_KEYED_TABLES_WITHOUT_FK = (
+    "sensor_readings",
+    "rc_model_params",
+    "anomalies",
+    "mpc_schedules",
+    "diagnoses",
+    "alerts",
+)
+
+
+@app.delete(
+    "/buildings/{building_id}",
+    response_model=None,
+    status_code=204,
+    summary="Delete a building and every room, floor, and thermal record under it",
+)
+async def delete_building(building_id: str, session: SessionDep) -> None:
+    building = session.get(Building, building_id)
+    if building is None:
+        raise HTTPException(status_code=404, detail=f"Building not found: {building_id}")
+
+    room_ids = session.exec(
+        select(Room.room_id).join(Floor, Floor.floor_id == Room.floor_id).where(Floor.building_id == building_id)
+    ).all()
+
+    if room_ids:
+        params = {f"r{i}": room_id for i, room_id in enumerate(room_ids)}
+        placeholders = ", ".join(f":{key}" for key in params)
+        for table in _ROOM_KEYED_TABLES_WITHOUT_FK:
+            session.execute(text(f"DELETE FROM {table} WHERE room_id IN ({placeholders})"), params)
+
+    session.execute(text("DELETE FROM orchestration_runs WHERE building_id = :building_id"), {"building_id": building_id})
+    session.delete(building)
+    session.commit()
 
 
 class AcRegistryEntry(BaseModel):

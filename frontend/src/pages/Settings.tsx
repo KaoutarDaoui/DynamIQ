@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
-import { fetchAlertEmail, ThermalApiError, updateAlertEmail } from "../lib/api";
+import { ApiError, deleteBuilding, fetchAlertEmail, ThermalApiError, updateAlertEmail } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { Card, CardHeader, Field, PrimaryButton, SecondaryButton, StatusBadge, inputClass } from "../components/ui";
+import { Card, CardHeader, ConfirmDialog, Field, PrimaryButton, SecondaryButton, StatusBadge, inputClass } from "../components/ui";
 
 const tabs = ["Users & roles", "Building", "Integrations", "Calibration"] as const;
 
@@ -88,6 +88,68 @@ function AlertEmailCard({ buildingId }: { buildingId: string }) {
   );
 }
 
+function DangerZoneCard({ buildingId }: { buildingId: string }) {
+  const navigate = useNavigate();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleDelete() {
+    setDeleting(true);
+    setError(null);
+    deleteBuilding(buildingId)
+      .then(() => navigate("/"))
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message : "Could not delete this building.");
+      })
+      .finally(() => setDeleting(false));
+  }
+
+  return (
+    <Card className="mt-5 border-red-200 p-5 dark:border-red-900">
+      <CardHeader title="Danger zone" subtitle="Permanently delete this building and everything under it." />
+      <div className="flex items-center justify-between px-0 pt-2">
+        <p className="max-w-md text-[13px] text-ink-400">
+          Removes the building, its floors and rooms, and all sensor history, calibration data, and schedules. This
+          cannot be undone.
+        </p>
+        <SecondaryButton
+          onClick={() => setConfirmOpen(true)}
+          className="shrink-0 border-red-200 text-red-600 hover:border-red-300 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+        >
+          Delete building
+        </SecondaryButton>
+      </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={`Delete "${buildingId}"?`}
+        message={
+          <>
+            <p>
+              This permanently deletes the building, its floors and rooms, and all sensor history, calibration data,
+              and schedules for it. This cannot be undone.
+            </p>
+            {error && (
+              <p className="mt-2 flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                <AlertTriangle size={13} /> {error}
+              </p>
+            )}
+          </>
+        }
+        confirmLabel="Delete building"
+        danger
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => {
+          setConfirmOpen(false);
+          setError(null);
+        }}
+      />
+    </Card>
+  );
+}
+
 export default function Settings() {
   const { buildingId = "esi-algiers" } = useParams();
   const { user } = useAuth();
@@ -151,6 +213,7 @@ export default function Settings() {
       )}
 
       {tab === "Building" && <AlertEmailCard buildingId={buildingId} />}
+      {tab === "Building" && <DangerZoneCard buildingId={buildingId} />}
 
       {tab === "Integrations" && (
         <Card className="mt-5 p-5">

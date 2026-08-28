@@ -819,18 +819,31 @@ def persist(state: BuildingAgentState) -> dict[str, Any]:
         rooms = state.get("rooms", [])
         saved_ids: list[str] = []
         for room_data in rooms:
+            area_m2 = float(room_data["area_m2"])
+            volume_m3 = float(room_data.get("volume_m3", area_m2 * CEILING_HEIGHT_M))
+            has_own_config = bool(room_data.get("config_json"))
             room_config = room_data.get("config_json") or default_room_config()
             thermal = room_config.get("thermal", {})
+            # The generic default config's estimated_C_zone is a flat
+            # 145000 J/K regardless of room size -- fine for a mid-size
+            # room but badly overshoots for a small one (a storage closet
+            # doesn't hold as much heat as a 10m² office), which can push
+            # R*C past build_zone_model's sanity gate and leave that room
+            # permanently uncalibratable. Scale it from the room's own
+            # volume instead whenever nothing room-specific was supplied.
+            default_c_zone = volume_m3 * 1206.0  # air volumetric heat capacity, J/(m3*K)
+            c_zone = float(thermal["estimated_C_zone"]) if has_own_config else default_c_zone
             room = Room(
                 room_id=room_data["room_id"],
                 floor_id=floor_id,
                 room_label=room_data["room_label"],
                 room_type=str(room_data.get("room_type", "classroom")),
-                area_m2=float(room_data["area_m2"]),
-                volume_m3=float(room_data.get("volume_m3", room_data["area_m2"] * CEILING_HEIGHT_M)),
+                area_m2=area_m2,
+                volume_m3=volume_m3,
                 primary_orientation=str(room_data.get("primary_orientation", "unknown")),
                 r_wall=float(thermal.get("wall_r_value", 1.8)),
-                c_zone=float(thermal.get("estimated_C_zone", 145000.0)),
+                c_zone=c_zone,
+                sensor_id=room_data.get("sensor_id") or f"sensor-{room_data['room_id']}",
                 config_json=room_config,
             )
             save_room(session, room)

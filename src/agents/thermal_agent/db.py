@@ -182,7 +182,7 @@ def get_engine() -> Engine:
     database_url = os.getenv('DATABASE_URL')
     if not database_url:
         raise RuntimeError('DATABASE_URL must be set (see .env.example)')
-    return create_engine(database_url, pool_size=3, max_overflow=2, pool_pre_ping=True)
+    return create_engine(database_url, pool_size=1, max_overflow=1, pool_pre_ping=True)
 
 def fetch_room(engine: Engine, room_id: str) -> RoomRecord:
     with Session(engine) as session:
@@ -205,6 +205,11 @@ def fetch_building(engine: Engine, building_id: str) -> BuildingRecord:
     if row is None:
         raise LookupError(f'Building not found: {building_id}')
     return BuildingRecord(building_id=row.building_id, name=row.name, latitude=row.latitude, longitude=row.longitude, total_floors=row.total_floors, country_code=row.country_code)
+
+def fetch_all_building_ids(engine: Engine) -> list[str]:
+    with Session(engine) as session:
+        rows = session.exec(select(BuildingsTable.building_id)).all()
+    return list(rows)
 
 def fetch_org_alert_email(engine: Engine, building_id: str) -> str | None:
     with Session(engine) as session:
@@ -249,6 +254,10 @@ def fetch_sensor_readings(engine: Engine, room_id: str, start: datetime, end: da
     with Session(engine) as session:
         rows = session.exec(select(SensorReadingsTable).where(SensorReadingsTable.room_id == room_id, SensorReadingsTable.ts >= start, SensorReadingsTable.ts <= end).order_by(SensorReadingsTable.ts.asc())).all()
     return _sensor_window(rows)
+
+def count_sensor_readings(engine: Engine, room_id: str, start: datetime, end: datetime) -> int:
+    with Session(engine) as session:
+        return session.exec(select(func.count()).select_from(SensorReadingsTable).where(SensorReadingsTable.room_id == room_id, SensorReadingsTable.ts >= start, SensorReadingsTable.ts <= end)).one()
 
 def fetch_latest_sensor_readings(engine: Engine, room_id: str, n: int) -> SensorReadingsWindow:
     with Session(engine) as session:
@@ -397,24 +406,110 @@ class MpcScheduleSlot:
     actual_temp_c: float | None
 
 @dataclass(frozen=True)
+class MpcHistoryPoint:
+    ts: datetime
+    actual_temp_c: float | None
+    predicted_temp_c: float | None
+
+@dataclass(frozen=True)
 class MpcScheduleResult:
     solved_at: datetime
     model_version: int
     slots: list[MpcScheduleSlot]
+    history: list[MpcHistoryPoint]
+
+MPC_HISTORY_WINDOW = timedelta(hours=3)
+
 
 def fetch_latest_mpc_schedule(engine: Engine, room_id: str) -> MpcScheduleResult | None:
+    # slot_ts is anchored to the wall-clock instant the fast loop happened to
+    # run (now, now+900s, now+1800s, ...) while sensor_readings.ts is
+    # anchored to whenever the sensor feed happened to write -- the two are
+    # never exactly equal, so this matches each slot to the nearest reading
+    # within half a slot width instead of requiring exact equality.
+    from . import constants
+
     with Session(engine) as session:
         latest_solved_at = session.exec(select(func.max(MpcSchedulesTable.solved_at)).where(MpcSchedulesTable.room_id == room_id)).first()
         if latest_solved_at is None:
             return None
-        rows = session.exec(
-            select(MpcSchedulesTable, SensorReadingsTable.temp_measured_c)
-            .join(SensorReadingsTable, (SensorReadingsTable.room_id == MpcSchedulesTable.room_id) & (SensorReadingsTable.ts == MpcSchedulesTable.slot_ts), isouter=True)
+        schedule_rows = session.exec(
+            select(MpcSchedulesTable)
             .where(MpcSchedulesTable.room_id == room_id, MpcSchedulesTable.solved_at == latest_solved_at)
             .order_by(MpcSchedulesTable.slot_ts.asc())
         ).all()
-    slots = [MpcScheduleSlot(slot_ts=m.slot_ts, setpoint_c=m.setpoint_c, predicted_temp_c=m.predicted_temp_c, predicted_kwh=m.predicted_kwh, predicted_gco2=m.predicted_gco2, actual_temp_c=actual) for m, actual in rows]
-    return MpcScheduleResult(solved_at=latest_solved_at, model_version=rows[0][0].model_version, slots=slots)
+        if not schedule_rows:
+            return None
+        tolerance = timedelta(seconds=constants.DT_SECONDS / 2.0)
+        window_start = schedule_rows[0].slot_ts - tolerance
+        window_end = schedule_rows[-1].slot_ts + tolerance
+        readings = session.exec(
+            select(SensorReadingsTable.ts, SensorReadingsTable.temp_measured_c)
+            .where(SensorReadingsTable.room_id == room_id, SensorReadingsTable.ts >= window_start, SensorReadingsTable.ts <= window_end)
+            .order_by(SensorReadingsTable.ts.asc())
+        ).all()
+
+        # A rolling window of real readings before the schedule's own start.
+        # "Actual" on the schedule's own slots only ever covers the sliver
+        # of time since this schedule was solved, which resets every
+        # re-solve (every ~15min) -- this gives the chart real history to
+        # show instead of that sliver alone.
+        history_start = schedule_rows[0].slot_ts - MPC_HISTORY_WINDOW
+        history_rows = session.exec(
+            select(SensorReadingsTable.ts, SensorReadingsTable.temp_measured_c)
+            .where(SensorReadingsTable.room_id == room_id, SensorReadingsTable.ts >= history_start, SensorReadingsTable.ts < window_start)
+            .order_by(SensorReadingsTable.ts.asc())
+        ).all()
+
+        # Reconstruct what was actually *planned* during that same window.
+        # Every past solve predicted the same stretch of time, but each was
+        # superseded by the next re-solve ~15min later -- so "the plan" for
+        # any given moment is whatever the most recent solve *as of that
+        # moment* predicted for it, not every solve's full 24h horizon.
+        past_solve_rows = session.exec(
+            select(MpcSchedulesTable.solved_at, MpcSchedulesTable.slot_ts, MpcSchedulesTable.predicted_temp_c)
+            .where(
+                MpcSchedulesTable.room_id == room_id,
+                MpcSchedulesTable.slot_ts >= history_start,
+                MpcSchedulesTable.slot_ts < window_start,
+                MpcSchedulesTable.solved_at < latest_solved_at,
+            )
+            .order_by(MpcSchedulesTable.solved_at.asc(), MpcSchedulesTable.slot_ts.asc())
+        ).all()
+
+    solves: dict[datetime, list[tuple[datetime, float]]] = {}
+    for solved_at, slot_ts, predicted in past_solve_rows:
+        solves.setdefault(solved_at, []).append((slot_ts, predicted))
+    solve_times = sorted(solves)
+
+    planned_history: list[tuple[datetime, float]] = []
+    for i, solved_at in enumerate(solve_times):
+        valid_until = solve_times[i + 1] if i + 1 < len(solve_times) else window_start
+        for slot_ts, predicted in solves[solved_at]:
+            if solved_at <= slot_ts < valid_until:
+                planned_history.append((slot_ts, predicted))
+
+    merged: dict[datetime, dict[str, float]] = {}
+    for ts, temp in history_rows:
+        merged.setdefault(ts, {})["actual_temp_c"] = temp
+    for ts, predicted in planned_history:
+        merged.setdefault(ts, {})["predicted_temp_c"] = predicted
+    history = [
+        MpcHistoryPoint(ts=ts, actual_temp_c=vals.get("actual_temp_c"), predicted_temp_c=vals.get("predicted_temp_c"))
+        for ts, vals in sorted(merged.items())
+    ]
+
+    slots = []
+    for m in schedule_rows:
+        actual = None
+        best_diff = None
+        for ts, temp in readings:
+            diff = abs((ts - m.slot_ts).total_seconds())
+            if diff <= tolerance.total_seconds() and (best_diff is None or diff < best_diff):
+                actual = temp
+                best_diff = diff
+        slots.append(MpcScheduleSlot(slot_ts=m.slot_ts, setpoint_c=m.setpoint_c, predicted_temp_c=m.predicted_temp_c, predicted_kwh=m.predicted_kwh, predicted_gco2=m.predicted_gco2, actual_temp_c=actual))
+    return MpcScheduleResult(solved_at=latest_solved_at, model_version=schedule_rows[0].model_version, slots=slots, history=history)
 
 @dataclass(frozen=True)
 class AnomalyOverviewRecord:

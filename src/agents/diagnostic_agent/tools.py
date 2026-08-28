@@ -69,10 +69,17 @@ def get_calendar(engine: Engine, room_id: str, days: int = constants.CALENDAR_DE
             prev_ts = r["ts"]
         if current_start is not None and prev_ts is not None:
             blocks.append({"start": current_start.isoformat(), "end": prev_ts.isoformat()})
+        blocks_total = len(blocks)
+        # A noisy/flapping occupancy signal can produce thousands of tiny
+        # blocks over `days` -- unbounded, this was large enough to blow past
+        # Groq's request size limit (413).
+        downsampled = _downsample(blocks)
         return {
             "room_id": room_id,
             "days": days,
-            "occupancy_blocks_observed": blocks,
+            "blocks_total": blocks_total,
+            "blocks_returned": len(downsampled),
+            "occupancy_blocks_observed": downsampled,
             "note": "Retrospective, inferred from sensor_readings.q_occ_w history -- there is no real scheduling/calendar system in this stack yet, so this cannot show FUTURE scheduled blocks, only what was observed.",
         }
 
@@ -141,20 +148,24 @@ def get_similar_anomalies(engine: Engine, room_id: str, days: int = constants.SI
         if hours is not None:
             lookback_days = max(1, int(-(-hours // 24)))
         rows = db.fetch_similar_anomalies(engine, room_id, lookback_days, exclude_anomaly_id)
+        prior_anomalies = [
+            {
+                "anomaly_id": r["id"],
+                "opened_at": r["opened_at"].isoformat(),
+                "closed_at": r["closed_at"].isoformat() if r["closed_at"] else None,
+                "residual_c": r["residual_c"],
+                "resolved_cause": r["cause"],
+                "resolved_cause_confidence": r["cause_confidence"],
+            }
+            for r in rows
+        ]
+        downsampled = _downsample(prior_anomalies)
         return {
             "room_id": room_id,
             "days": lookback_days,
-            "prior_anomalies": [
-                {
-                    "anomaly_id": r["id"],
-                    "opened_at": r["opened_at"].isoformat(),
-                    "closed_at": r["closed_at"].isoformat() if r["closed_at"] else None,
-                    "residual_c": r["residual_c"],
-                    "resolved_cause": r["cause"],
-                    "resolved_cause_confidence": r["cause_confidence"],
-                }
-                for r in rows
-            ],
+            "anomalies_total": len(prior_anomalies),
+            "anomalies_returned": len(downsampled),
+            "prior_anomalies": downsampled,
         }
 
     return _wrap(run)

@@ -4,7 +4,21 @@ room's temperature with the same RC physics used elsewhere in Agent 2. Each
 tick has a chance of reporting a faulty value instead of a real one, to
 exercise the anomaly pipeline against noisy/broken sensors.
 
+Anomaly detection (run_anomaly_pipeline) runs right here, synchronously,
+immediately after each room's reading commits -- this is what "detection
+every 2min, right after generation" actually means: not a separate process
+polling on its own out-of-phase timer, but the check running in the same
+breath as the write it's checking. run_orchestration_loop.py no longer
+duplicates this -- calibration and MPC still live there, but anomaly
+detection's only real driver is this script.
+
+With no --building-id, simulates every instrumented room in every building
+in the database (this is the normal way to run it), and rescans for newly
+added rooms/buildings every tick so a room added after this starts (e.g.
+via onboarding) joins the feed on its own -- no restart needed.
+
 Usage:
+    python scripts/simulate_live_sensors.py
     python scripts/simulate_live_sensors.py --building-id djezzy-hq
     python scripts/simulate_live_sensors.py --room-id djezzy-hq-floor-2-room-01 --iterations 5
 """
@@ -28,12 +42,14 @@ from sqlmodel import Session
 
 from agents.thermal_agent import constants
 from agents.thermal_agent import rc
+from agents.thermal_agent.anomaly import run_anomaly_pipeline
 from agents.thermal_agent.db import (
     BuildingRecord,
     FloorRecord,
     RoomRecord,
     SensorReadingsTable,
     fetch_active_rc_model_params,
+    fetch_all_building_ids,
     fetch_building,
     fetch_floor,
     fetch_instrumented_room_ids,
@@ -142,11 +158,22 @@ def _tick(engine, session: Session, state: RoomState, now: datetime, interval_s:
     flag = f"  FAULT({fault_kind})" if fault_kind else ""
     print(f"[{now.isoformat()}] {state.room.room_id:32s} temp={t_measured:6.2f}C ext={t_ext_c:5.1f}C occ={int(occupied)}{flag}")
 
+    # Run anomaly detection right here, synchronously, immediately after
+    # this room's reading commits -- rather than on a separately-timed
+    # process whose own 2min cycle drifts out of phase with generation and
+    # could check data that's up to a full interval stale.
+    try:
+        anomaly_result = run_anomaly_pipeline(engine, state.room.room_id, occupied=occupied)
+        if anomaly_result.stage not in ("ok", "cold_start"):
+            print(f"    -> anomaly stage={anomaly_result.stage} ({anomaly_result.detail})")
+    except Exception as exc:
+        print(f"    ! anomaly check failed for {state.room.room_id}: {exc!r}")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--building-id", default="djezzy-hq")
-    parser.add_argument("--room-id", action="append", default=None, help="Limit to specific room id(s); repeatable. Defaults to all instrumented rooms in --building-id.")
+    parser.add_argument("--building-id", default=None, help="Limit to one building. Defaults to every building in the database.")
+    parser.add_argument("--room-id", action="append", default=None, help="Limit to specific room id(s); repeatable. Defaults to all instrumented rooms in --building-id (or every building).")
     parser.add_argument("--interval-seconds", type=float, default=120.0)
     parser.add_argument("--mistake-probability", type=float, default=0.07)
     parser.add_argument("--iterations", type=int, default=None, help="Stop after this many ticks per room instead of running forever.")
@@ -155,25 +182,61 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _discover_room_ids(engine, args: argparse.Namespace, verbose: bool) -> list[str]:
+    if args.room_id:
+        return args.room_id
+    building_ids = [args.building_id] if args.building_id else fetch_all_building_ids(engine)
+    room_ids = []
+    for building_id in building_ids:
+        ids = fetch_instrumented_room_ids(engine, building_id)
+        if not ids:
+            if verbose:
+                print(f"  (skipping {building_id!r}: no instrumented rooms)")
+            continue
+        room_ids.extend(ids)
+    return room_ids
+
+
 def main() -> None:
     args = parse_args()
     engine = get_engine()
     rng = np.random.default_rng(args.seed)
+    # Only auto-discover (and keep rescanning for new rooms every tick) when
+    # the caller didn't pin an explicit --room-id list.
+    auto_discover = not args.room_id
 
-    room_ids = args.room_id or fetch_instrumented_room_ids(engine, args.building_id)
+    room_ids = _discover_room_ids(engine, args, verbose=True)
     if not room_ids:
-        raise SystemExit(f"No instrumented rooms found for building {args.building_id!r}")
+        raise SystemExit("No instrumented rooms found.")
 
-    states = {room_id: _load_room_state(engine, room_id) for room_id in room_ids}
+    states: dict[str, RoomState] = {}
+    for room_id in room_ids:
+        try:
+            states[room_id] = _load_room_state(engine, room_id)
+        except Exception as exc:  # e.g. bad building geometry -- don't take the whole feed down over one room
+            print(f"  ! failed to load {room_id}, skipping it: {exc!r}")
+    if not states:
+        raise SystemExit("No room could be loaded (all failed -- see errors above).")
     print(f"Simulating {len(states)} room(s) every {args.interval_seconds:.0f}s, {args.mistake_probability:.0%} chance of a faulty reading per tick.")
 
     iteration = 0
     with Session(engine) as session:
         try:
             while args.iterations is None or iteration < args.iterations:
+                if auto_discover and iteration > 0:
+                    for room_id in _discover_room_ids(engine, args, verbose=False):
+                        if room_id not in states:
+                            try:
+                                states[room_id] = _load_room_state(engine, room_id)
+                                print(f"  + new room detected: {room_id}, joining the simulation")
+                            except Exception as exc:  # e.g. missing building lat/long -- don't take the whole feed down
+                                print(f"  ! failed to load {room_id}, skipping it: {exc!r}")
                 now = datetime.now(timezone.utc)
-                for state in states.values():
-                    _tick(engine, session, state, now, args.interval_seconds, args.mistake_probability, not args.online_weather, rng)
+                for room_id, state in list(states.items()):
+                    try:
+                        _tick(engine, session, state, now, args.interval_seconds, args.mistake_probability, not args.online_weather, rng)
+                    except Exception as exc:  # keep simulating every other room even if one is broken
+                        print(f"  ! tick failed for {room_id}, skipping it this round: {exc!r}")
                 iteration += 1
                 if args.iterations is None or iteration < args.iterations:
                     time.sleep(args.interval_seconds)

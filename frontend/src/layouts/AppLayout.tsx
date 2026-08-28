@@ -22,9 +22,9 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { buildings as mockBuildings } from "../data/mock";
-import { fetchOrgBuildings, toPortfolioBuilding, fetchThermalModels, fetchMpcRooms, fetchAlerts, ThermalApiError } from "../lib/api";
+import { fetchOrgBuildings, toPortfolioBuilding, fetchAlerts } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import type { Building, ThermalModelRoom, MpcRoomSummary, LiveAlert } from "../types";
+import type { Building, LiveAlert } from "../types";
 
 function useTheme() {
   const [dark, setDark] = useState(
@@ -77,7 +77,7 @@ function NotificationBell({ buildingId }: { buildingId: string | undefined }) {
         aria-label="Notifications"
       >
         <Bell size={18} />
-        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
+        {unreadCount > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />}
       </button>
       {open && (
         <>
@@ -91,17 +91,32 @@ function NotificationBell({ buildingId }: { buildingId: string | undefined }) {
                 {unreadCount} {unreadCount === 1 ? "alert" : "alerts"}
               </span>
             </div>
-            <div className="divide-y divide-ink-100 dark:divide-ink-800">
-              {notifications.map((notification) => (
-                <div key={notification.id} className="px-4 py-3">
-                  <p className="text-[13px] font-medium text-ink-900 dark:text-ink-50">
-                    {notification.title}
-                  </p>
-                  <p className="text-[12px] text-ink-400">
-                    {notification.time}
-                  </p>
-                </div>
-              ))}
+            <div className="max-h-96 overflow-y-auto divide-y divide-ink-100 dark:divide-ink-800">
+              {loading && (
+                <p className="px-4 py-6 text-center text-[13px] text-ink-400">Loading…</p>
+              )}
+              {!loading && alerts.length === 0 && (
+                <p className="px-4 py-6 text-center text-[13px] text-ink-400">No alerts for this building.</p>
+              )}
+              {!loading &&
+                alerts.map((alert) => (
+                  <Link
+                    key={alert.id}
+                    to={buildingId ? `/b/${buildingId}/anomalies/${alert.anomalyId}` : "#"}
+                    onClick={() => setOpen(false)}
+                    className="block px-4 py-3 transition hover:bg-ink-50 dark:hover:bg-ink-800"
+                  >
+                    <p className="text-[13px] font-medium text-ink-900 dark:text-ink-50">
+                      {alert.roomLabel}
+                    </p>
+                    <p className="mt-0.5 truncate text-[12px] text-ink-600 dark:text-ink-300">
+                      {alert.message}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-ink-400">
+                      {new Date(alert.sentAt).toLocaleString()}
+                    </p>
+                  </Link>
+                ))}
             </div>
           </div>
         </>
@@ -178,7 +193,7 @@ function RailLink({ item }: { item: RailLink }) {
       aria-label={item.label}
       className={({ isActive }) =>
         clsx(
-          "flex h-10 w-10 aspect-square items-center justify-center rounded-full transition",
+          "flex h-9 w-9 aspect-square items-center justify-center rounded-full transition sm:h-10 sm:w-10",
           isActive
             ? "bg-primary-500 text-white"
             : "text-ink-400 hover:bg-ink-50 dark:hover:bg-ink-800",
@@ -201,7 +216,6 @@ function FloatingRail({
 }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const [profileOpen, setProfileOpen] = useState(false);
   const links: RailLink[] = base
     ? [
         {
@@ -247,7 +261,7 @@ function FloatingRail({
   };
   return (
     <nav
-      className="fixed bottom-6 left-6 z-40 flex flex-col items-center gap-2 rounded-[30px] border border-ink-100/60 bg-white/95 px-2.5 py-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.08)] backdrop-blur dark:border-ink-800/60 dark:bg-ink-900/95"
+      className="fixed left-3 top-1/2 z-40 flex max-h-[calc(100vh-1.5rem)] -translate-y-1/2 flex-col items-center gap-1.5 overflow-y-auto rounded-[26px] border border-ink-100/60 bg-white/95 px-2 py-2 shadow-[0_4px_20px_rgba(0,0,0,0.08)] backdrop-blur dark:border-ink-800/60 dark:bg-ink-900/95 sm:left-6 sm:gap-2 sm:rounded-[30px] sm:px-2.5 sm:py-2.5"
       aria-label="Primary"
     >
       {!base && <RailLink item={generalDashboard} />}
@@ -265,46 +279,24 @@ function FloatingRail({
           icon: <HelpCircle size={18} strokeWidth={1.75} />,
         }}
       />
-      <div className="relative">
-        <button
-          className="flex h-10 w-10 aspect-square items-center justify-center rounded-full bg-primary-100 text-[12px] font-medium text-primary-700 transition hover:brightness-95 dark:bg-primary-800 dark:text-primary-200"
-          onClick={() => setProfileOpen((value) => !value)}
-          aria-label="Profile"
-          title={user?.name}
-        >
-          {user?.avatarInitials}
-        </button>
-        {profileOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-30"
-              onClick={() => setProfileOpen(false)}
-            />
-            <div className="absolute left-full top-1/2 z-40 ml-3 w-52 -translate-y-1/2 overflow-hidden rounded-xl border border-ink-100 bg-white py-2 shadow-lg dark:border-ink-800 dark:bg-ink-900">
-              <div className="px-3.5 py-1.5">
-                <p className="truncate text-[13px] font-medium text-ink-900 dark:text-ink-50">
-                  {user?.name}
-                </p>
-                <p className="truncate text-[11px] capitalize text-ink-400">
-                  {user?.role.replace("_", " ")}
-                </p>
-              </div>
-              <button
-                className="mt-1 flex w-full items-center gap-2 px-3.5 py-2 text-[13px] text-ink-700 hover:bg-ink-50 dark:text-ink-200 dark:hover:bg-ink-800"
-                onClick={() => {
-                  setProfileOpen(false);
-                  toggleTheme();
-                }}
-              >
-                {dark ? <Sun size={15} /> : <Moon size={15} />}
-                {dark ? "Light mode" : "Dark mode"}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
       <button
-        className="flex h-10 w-10 aspect-square items-center justify-center rounded-full text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400"
+        className="flex h-9 w-9 aspect-square items-center justify-center rounded-full text-ink-400 transition hover:bg-ink-50 dark:hover:bg-ink-800 sm:h-10 sm:w-10"
+        onClick={toggleTheme}
+        aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+        title={dark ? "Light mode" : "Dark mode"}
+      >
+        {dark ? <Sun size={18} strokeWidth={1.75} /> : <Moon size={18} strokeWidth={1.75} />}
+      </button>
+      <Link
+        to="/profile"
+        className="flex h-9 w-9 aspect-square items-center justify-center rounded-full bg-primary-100 text-[12px] font-medium text-primary-700 transition hover:brightness-95 dark:bg-primary-800 dark:text-primary-200 sm:h-10 sm:w-10"
+        aria-label="Profile"
+        title={user?.name}
+      >
+        {user?.avatarInitials}
+      </Link>
+      <button
+        className="flex h-9 w-9 aspect-square items-center justify-center rounded-full text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400 sm:h-10 sm:w-10"
         onClick={() => {
           signOut();
           navigate("/login");
@@ -399,9 +391,9 @@ export default function AppLayout() {
   return (
     <div className="relative flex h-screen overflow-hidden bg-[#EEEEF2] dark:bg-[#161512]">
       <FloatingRail base={base} dark={dark} toggleTheme={toggle} />
-      <div className="flex min-w-0 flex-1 flex-col pl-24">
+      <div className="flex min-w-0 flex-1 flex-col pl-16 sm:pl-24">
         <header className="relative flex h-20 shrink-0 items-center gap-4 px-6 pt-4">
-          <div className="-ml-24 flex shrink-0 items-center gap-3">
+          <div className="-ml-16 flex shrink-0 items-center gap-3 sm:-ml-24">
             <img src="/logo_dynamIQ_icon.png" alt="" className="h-7 w-7" />
             <img
               src="/logo_dynamIQ_name.png"
@@ -412,7 +404,7 @@ export default function AppLayout() {
           {base && <BuildingTabs base={base} />}
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <BuildingSwitcher buildings={buildings} />
-            <NotificationBell />
+            <NotificationBell buildingId={buildingId} />
             <button
               className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-[11px] font-medium text-primary-700 transition hover:brightness-95 dark:bg-primary-800 dark:text-primary-200"
               aria-label="Profile"

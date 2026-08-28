@@ -1,5 +1,5 @@
 import type { AgentStatus, Building, Role } from "../types";
-import type { HeatmapRoom, LiveAlert, LiveAnomalyDetail, LiveAnomalyOverview, LiveDiagnosisOverview, MpcRoomSummary, MpcSchedule, ReportsSummary, ThermalModelRoom } from "../types";
+import type { HeatmapRoom, LiveAlert, LiveAnomalyDetail, LiveAnomalyOverview, LiveDiagnosisOverview, MpcRoomSummary, MpcSchedule, ReportsSummary, SensorReadingPoint, ThermalModelRoom } from "../types";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8010";
 
@@ -123,6 +123,15 @@ export interface BuildingCreatedDto {
   total_floors: number;
   country_code: string;
   org_id: string | null;
+}
+
+export async function deleteBuilding(buildingId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/buildings/${encodeURIComponent(buildingId)}`, { method: "DELETE" });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const detail = typeof body?.detail === "string" ? body.detail : response.statusText;
+    throw new ApiError(detail, response.status);
+  }
 }
 
 export function fetchOrgBuildings(orgId: string = DEFAULT_ORG_ID): Promise<BuildingSummaryDto[]> {
@@ -356,6 +365,31 @@ export async function fetchFloorHeatmap(buildingId: string, floorLevel: number, 
   }));
 }
 
+interface SensorReadingApiResponse {
+  ts: string;
+  temp_measured_c: number;
+  temp_ext_c: number;
+  q_solar_w: number;
+  q_occ_w: number;
+  q_hvac_w: number;
+}
+
+export async function fetchSensorReadings(buildingId: string, roomId: string, hours = 48, signal?: AbortSignal): Promise<SensorReadingPoint[]> {
+  const realBuildingId = BUILDING_ID_MAP[buildingId] ?? buildingId;
+  const res = await _get(`/buildings/${encodeURIComponent(realBuildingId)}/rooms/${encodeURIComponent(roomId)}/sensor-readings?hours=${hours}`, signal);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new ThermalApiError(`Thermal Agent API returned ${res.status}`);
+  const data: SensorReadingApiResponse[] = await res.json();
+  return data.map((r) => ({
+    ts: r.ts,
+    tempMeasuredC: r.temp_measured_c,
+    tempExtC: r.temp_ext_c,
+    qSolarW: r.q_solar_w,
+    qOccW: r.q_occ_w,
+    qHvacW: r.q_hvac_w,
+  }));
+}
+
 interface MpcRoomSummaryApiResponse {
   room_id: string;
   room_label: string;
@@ -389,6 +423,11 @@ interface MpcScheduleApiResponse {
     predicted_gco2: number;
     actual_temp_c: number | null;
   }[];
+  history: {
+    ts: string;
+    actual_temp_c: number | null;
+    predicted_temp_c: number | null;
+  }[];
 }
 
 export async function fetchMpcSchedule(buildingId: string, roomId: string, signal?: AbortSignal): Promise<MpcSchedule | null> {
@@ -414,6 +453,7 @@ export async function fetchMpcSchedule(buildingId: string, roomId: string, signa
       predictedGco2: s.predicted_gco2,
       actualTempC: s.actual_temp_c,
     })),
+    history: d.history.map((h) => ({ ts: h.ts, actualTempC: h.actual_temp_c, predictedTempC: h.predicted_temp_c })),
   };
 }
 

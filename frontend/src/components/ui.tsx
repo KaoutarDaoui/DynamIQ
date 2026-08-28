@@ -146,6 +146,64 @@ export function SecondaryButton({
   );
 }
 
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  danger = false,
+  loading = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  loading?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-ink-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-[16px] font-medium text-ink-900 dark:text-white">{title}</h3>
+        <div className="mt-2 text-[13px] text-ink-500 dark:text-ink-400">{message}</div>
+        <div className="mt-5 flex justify-end gap-2">
+          <SecondaryButton onClick={onCancel} disabled={loading}>
+            Cancel
+          </SecondaryButton>
+          {danger ? (
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={loading}
+              className={clsx(
+                "inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-[14px] font-medium text-white transition hover:bg-red-700 active:bg-red-800 dark:hover:bg-red-500",
+                loading && "opacity-50 cursor-not-allowed hover:bg-red-600 dark:hover:bg-red-600"
+              )}
+            >
+              {loading ? "Deleting…" : confirmLabel}
+            </button>
+          ) : (
+            <PrimaryButton onClick={onConfirm} disabled={loading}>
+              {loading ? "Deleting…" : confirmLabel}
+            </PrimaryButton>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Field({
   label,
   children,

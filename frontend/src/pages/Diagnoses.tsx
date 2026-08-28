@@ -95,6 +95,9 @@ export default function Diagnoses() {
   const [sort, setSort] = useState<"newest" | "oldest" | "energy">("newest");
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
+  const [datePreset, setDatePreset] = useState<"24h" | "3d" | "7d" | "30d" | "custom">("3d");
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -112,9 +115,32 @@ export default function Diagnoses() {
     return () => controller.abort();
   }, [buildingId, reloadKey]);
 
+  // The date window drives the KPI cards and the two breakdown charts above
+  // the table (see `windowed`) -- everything else (confidence, cause,
+  // decision, search) only narrows the table itself.
+  const dateRange = useMemo(() => {
+    const now = Date.now();
+    if (datePreset === "custom") {
+      return {
+        fromTs: from ? +new Date(`${from}T00:00:00`) : null,
+        toTs: to ? +new Date(`${to}T23:59:59`) : null,
+      };
+    }
+    const days = datePreset === "24h" ? 1 : datePreset === "3d" ? 3 : datePreset === "7d" ? 7 : 30;
+    return { fromTs: now - days * 24 * 60 * 60 * 1000, toTs: now };
+  }, [datePreset, from, to]);
+
+  const windowed = useMemo(() => {
+    const { fromTs, toTs } = dateRange;
+    return (diagnoses ?? []).filter((d) => {
+      const ts = +new Date(d.createdAt);
+      return (fromTs === null || ts >= fromTs) && (toTs === null || ts <= toTs);
+    });
+  }, [diagnoses, dateRange]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = (diagnoses ?? []).filter(
+    const list = windowed.filter(
       (d) =>
         (confidence === "all" || d.causeConfidence === confidence) &&
         (cause === "all" || d.cause === cause) &&
@@ -126,7 +152,7 @@ export default function Diagnoses() {
       if (sort === "oldest") return +new Date(a.createdAt) - +new Date(b.createdAt);
       return b.energyWastedKwh - a.energyWastedKwh;
     });
-  }, [diagnoses, confidence, cause, decision, search, sort]);
+  }, [windowed, confidence, cause, decision, search, sort]);
 
   const PAGE_SIZE = 5;
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -135,17 +161,17 @@ export default function Diagnoses() {
 
   const causeBreakdown = useMemo(() => {
     const counts = new Map<string, number>();
-    (diagnoses ?? []).forEach((d) => counts.set(d.cause, (counts.get(d.cause) ?? 0) + 1));
+    windowed.forEach((d) => counts.set(d.cause, (counts.get(d.cause) ?? 0) + 1));
     return [...counts.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [diagnoses]);
+  }, [windowed]);
 
   const energyByCause = useMemo(() => {
     const totals = new Map<string, number>();
-    (diagnoses ?? []).forEach((d) => totals.set(d.cause, (totals.get(d.cause) ?? 0) + d.energyWastedKwh));
+    windowed.forEach((d) => totals.set(d.cause, (totals.get(d.cause) ?? 0) + d.energyWastedKwh));
     return [...totals.entries()].map(([name, kwh]) => ({ name, kwh })).sort((a, b) => b.kwh - a.kwh);
-  }, [diagnoses]);
+  }, [windowed]);
 
-  const undeterminedCount = useMemo(() => (diagnoses ?? []).filter((d) => d.causeConfidence === "undetermined").length, [diagnoses]);
+  const undeterminedCount = useMemo(() => windowed.filter((d) => d.causeConfidence === "undetermined").length, [windowed]);
 
   const topCause = useMemo(() => {
     let best: string | null = null;
@@ -159,11 +185,17 @@ export default function Diagnoses() {
     return best;
   }, [causeBreakdown]);
 
-  const totalEnergyWasted = useMemo(() => (diagnoses ?? []).reduce((sum, d) => sum + d.energyWastedKwh, 0), [diagnoses]);
-  const autonomousCount = useMemo(() => (diagnoses ?? []).filter((d) => d.supervisorDecision === "autonomous").length, [diagnoses]);
-  const humanAlertCount = useMemo(() => (diagnoses ?? []).filter((d) => d.supervisorDecision === "human_alert").length, [diagnoses]);
+  const totalEnergyWasted = useMemo(() => windowed.reduce((sum, d) => sum + d.energyWastedKwh, 0), [windowed]);
+  const autonomousCount = useMemo(() => windowed.filter((d) => d.supervisorDecision === "autonomous").length, [windowed]);
+  const humanAlertCount = useMemo(() => windowed.filter((d) => d.supervisorDecision === "human_alert").length, [windowed]);
 
   const selectCls = "rounded-lg border border-ink-200 bg-white px-2.5 py-2 text-[13px] text-ink-700 outline-none dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200";
+  const windowLabel =
+    datePreset === "24h" ? "last 24 hours" :
+    datePreset === "3d" ? "last 3 days" :
+    datePreset === "7d" ? "last 7 days" :
+    datePreset === "30d" ? "last 30 days" :
+    "the selected date range";
 
   const resetCardFilters = () => {
     setConfidence("all");
@@ -172,6 +204,13 @@ export default function Diagnoses() {
     setSearch("");
     setSort("newest");
     setPage(1);
+  };
+
+  const clearFilters = () => {
+    resetCardFilters();
+    setDatePreset("3d");
+    setFrom("");
+    setTo("");
   };
 
   const exportCSV = () => {
@@ -201,6 +240,9 @@ export default function Diagnoses() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-[20px] font-medium">Diagnoses</h1>
+          <p className="mt-1 text-[13px] text-ink-400">
+            Showing {windowLabel} · change the Date filter below to widen or narrow this
+          </p>
         </div>
         <button
           onClick={() => setReloadKey((k) => k + 1)}
@@ -220,11 +262,14 @@ export default function Diagnoses() {
 
       {!error && (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <p className="mt-6 text-[11px] font-medium uppercase tracking-wide text-ink-400">
+            {windowLabel[0].toUpperCase() + windowLabel.slice(1)}
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
             <StatCard
               label="Total diagnoses"
-              value={loading ? "—" : String(diagnoses?.length ?? 0)}
-              risk={(diagnoses?.length ?? 0) > 10 ? "warn" : "safe"}
+              value={loading ? "—" : String(windowed.length)}
+              risk={windowed.length > 10 ? "warn" : "safe"}
               filter
               active={confidence === "all" && cause === "all" && decision === "all" && !search}
               onClick={() => resetCardFilters()}
@@ -338,6 +383,26 @@ export default function Diagnoses() {
                     <option key={d.id} value={d.id}>{d.label}</option>
                   ))}
                 </select>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-ink-400">Date</span>
+                  <select
+                    className={selectCls}
+                    value={datePreset}
+                    onChange={(e) => { setDatePreset(e.target.value as "24h" | "3d" | "7d" | "30d" | "custom"); setPage(1); }}
+                  >
+                    <option value="24h">Last 24h</option>
+                    <option value="3d">Last 3 days</option>
+                    <option value="7d">Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                {datePreset === "custom" && (
+                  <>
+                    <input type="date" className={selectCls} title="From date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} />
+                    <input type="date" className={selectCls} title="To date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} />
+                  </>
+                )}
                 <select className={selectCls} value={sort} onChange={(e) => { setSort(e.target.value as "newest" | "oldest" | "energy"); setPage(1); }}>
                   <option value="newest">Sort: Newest</option>
                   <option value="oldest">Sort: Oldest</option>
@@ -390,7 +455,7 @@ export default function Diagnoses() {
                           <p className="text-[13px] text-ink-400">Try adjusting or clearing your filters.</p>
                           <div className="flex items-center justify-center gap-2">
                             {(confidence !== "all" || cause !== "all" || decision !== "all" || search) && (
-                              <button type="button" onClick={resetCardFilters} className="flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-medium text-ink-700 transition hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800">
+                              <button type="button" onClick={clearFilters} className="flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-medium text-ink-700 transition hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800">
                                 <X size={14} /> Clear all filters
                               </button>
                             )}

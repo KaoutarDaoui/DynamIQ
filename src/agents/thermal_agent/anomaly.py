@@ -16,33 +16,80 @@ class AnomalyCheckResult:
     detail: str
     anomaly_id: int | None = None
 
-def check_sensor_validity(room_id: str, readings_last_2h) -> AnomalyCheckResult | None:
+def detect_sensor_fault(readings_last_2h, now: datetime) -> str | None:
+    """Pure detection logic: returns a fault detail string, or None if the
+    latest reading looks physically plausible. No I/O -- see
+    check_sensor_validity for the persisting wrapper around this."""
     if len(readings_last_2h.ts) == 0:
-        return AnomalyCheckResult(room_id, 'sensor_fault', 'no reading available')
+        return 'no reading available'
     latest_ts = readings_last_2h.ts[-1]
     latest_temp = readings_last_2h.temp_measured_c[-1]
-    now = datetime.now(timezone.utc)
     if latest_ts.tzinfo is None:
         latest_ts = latest_ts.replace(tzinfo=timezone.utc)
     if now - latest_ts > timedelta(minutes=constants.SENSOR_MAX_STALENESS_MINUTES):
-        return AnomalyCheckResult(room_id, 'sensor_fault', f'reading is stale: {latest_ts.isoformat()}')
+        return f'reading is stale: {latest_ts.isoformat()}'
     if not constants.SENSOR_VALID_MIN_C <= latest_temp <= constants.SENSOR_VALID_MAX_C:
-        return AnomalyCheckResult(room_id, 'sensor_fault', f'reading {latest_temp}C outside physical range')
+        return f'reading {latest_temp}C outside physical range'
     stuck_window_start = latest_ts - timedelta(hours=constants.SENSOR_STUCK_WINDOW_HOURS)
     in_window = [t for t, ts in zip(readings_last_2h.temp_measured_c, readings_last_2h.ts) if (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts) >= stuck_window_start]
     if len(in_window) >= 2 and len(set(in_window)) == 1:
         span_hours = (latest_ts - (readings_last_2h.ts[0].replace(tzinfo=timezone.utc) if readings_last_2h.ts[0].tzinfo is None else readings_last_2h.ts[0])).total_seconds() / 3600.0
         if span_hours >= constants.SENSOR_STUCK_WINDOW_HOURS:
-            return AnomalyCheckResult(room_id, 'sensor_fault', f'byte-identical reading for >= {constants.SENSOR_STUCK_WINDOW_HOURS}h')
+            return f'byte-identical reading for >= {constants.SENSOR_STUCK_WINDOW_HOURS}h'
     return None
 
-def check_comfort_violation(room_id: str, latest_temp_c: float, occupied: bool) -> AnomalyCheckResult | None:
-    if not occupied:
-        return None
-    t_min, t_max = (constants.T_MIN_OCCUPIED_C, constants.T_MAX_OCCUPIED_C)
-    if latest_temp_c < t_min or latest_temp_c > t_max:
-        return AnomalyCheckResult(room_id, 'comfort_violation', f'T={latest_temp_c}C outside occupied bounds [{t_min}, {t_max}]')
+def check_sensor_validity(engine: Engine, room_id: str, readings_last_2h) -> AnomalyCheckResult | None:
+    # A physically impossible or missing reading is a data-quality problem,
+    # not a thermal one -- it's deliberately kept out of thermal_anomaly's
+    # diagnosis pipeline (Agent 3 reasons about *causes* like a stuck AC or
+    # an open door, which doesn't apply to "the sensor read 0C"). But it
+    # still needs to be visible somewhere instead of silently discarded, so
+    # it's persisted as its own anomaly_type -- fetch_undiagnosed_anomaly_ids
+    # already filters to anomaly_type == 'thermal_anomaly', so this can't
+    # leak into diagnosis by construction.
+    now = datetime.now(timezone.utc)
+    detail = detect_sensor_fault(readings_last_2h, now)
+    open_fault = fetch_open_anomaly(engine, room_id, 'sensor_fault')
+    if detail is not None:
+        if open_fault is not None:
+            return AnomalyCheckResult(room_id, 'sensor_fault', detail, open_fault.id)
+        anomaly_id = insert_anomaly(engine, room_id, 'sensor_fault', now, None, None, {'detail': detail}, None, None)
+        return AnomalyCheckResult(room_id, 'sensor_fault', detail, anomaly_id)
+    if open_fault is not None:
+        close_anomaly(engine, open_fault.id, now)
     return None
+
+def detect_comfort_violation(recent_temps_c, occupied: bool) -> bool:
+    """Pure detection logic: True if every one of the given (most recent,
+    consecutive) readings falls outside the occupied comfort band. No I/O --
+    see check_comfort_violation for the persisting wrapper around this."""
+    if not occupied or len(recent_temps_c) == 0:
+        return False
+    t_min, t_max = constants.T_MIN_OCCUPIED_C, constants.T_MAX_OCCUPIED_C
+    return all(t < t_min or t > t_max for t in recent_temps_c)
+
+def check_comfort_violation(engine: Engine, room_id: str, occupied: bool, now: datetime) -> AnomalyCheckResult | None:
+    # A single out-of-band reading is normal (weather momentarily outpacing
+    # HVAC); only a *sustained* violation (COMFORT_CONSECUTIVE_SAMPLES in a
+    # row) means the room genuinely isn't being brought back into comfort --
+    # a real "nobody is fixing this" signal, worth a persisted, visible
+    # anomaly rather than a one-off transient result.
+    open_violation = fetch_open_anomaly(engine, room_id, 'comfort_violation')
+    if not occupied:
+        if open_violation is not None:
+            close_anomaly(engine, open_violation.id, now)
+        return None
+    readings = fetch_latest_sensor_readings(engine, room_id, n=constants.COMFORT_CONSECUTIVE_SAMPLES)
+    if len(readings.ts) < constants.COMFORT_CONSECUTIVE_SAMPLES or not detect_comfort_violation(readings.temp_measured_c, occupied):
+        if open_violation is not None:
+            close_anomaly(engine, open_violation.id, now)
+        return None
+    t_min, t_max = constants.T_MIN_OCCUPIED_C, constants.T_MAX_OCCUPIED_C
+    detail = f'T={float(readings.temp_measured_c[-1]):.2f}C outside occupied bounds [{t_min}, {t_max}] for {constants.COMFORT_CONSECUTIVE_SAMPLES} consecutive readings'
+    if open_violation is not None:
+        return AnomalyCheckResult(room_id, 'comfort_violation', detail, open_violation.id)
+    anomaly_id = insert_anomaly(engine, room_id, 'comfort_violation', now, None, None, {'detail': detail}, None, None)
+    return AnomalyCheckResult(room_id, 'comfort_violation', detail, anomaly_id)
 
 def check_thermal_anomaly(engine: Engine, room_id: str) -> AnomalyCheckResult:
     model = fetch_active_rc_model_params(engine, room_id)
@@ -72,12 +119,12 @@ def check_thermal_anomaly(engine: Engine, room_id: str) -> AnomalyCheckResult:
     return AnomalyCheckResult(room_id, 'thermal_anomaly', 'still open, hysteresis band not yet cleared', open_anomaly.id)
 
 def run_anomaly_pipeline(engine: Engine, room_id: str, occupied: bool) -> AnomalyCheckResult:
+    now = datetime.now(timezone.utc)
     readings = fetch_latest_sensor_readings(engine, room_id, n=int(constants.SENSOR_STUCK_WINDOW_HOURS * 4) + 1)
-    sensor_result = check_sensor_validity(room_id, readings)
+    sensor_result = check_sensor_validity(engine, room_id, readings)
     if sensor_result is not None:
         return sensor_result
-    latest_temp = float(readings.temp_measured_c[-1])
-    comfort_result = check_comfort_violation(room_id, latest_temp, occupied)
+    comfort_result = check_comfort_violation(engine, room_id, occupied, now)
     if comfort_result is not None:
         return comfort_result
     return check_thermal_anomaly(engine, room_id)

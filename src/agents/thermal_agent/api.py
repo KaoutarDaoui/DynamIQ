@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +8,7 @@ from pydantic import BaseModel
 import logging
 from agents.logging_config import configure_agent_logging
 from . import constants
-from .db import fetch_alerts_overview, fetch_anomaly_detail, fetch_anomalies_overview, fetch_diagnoses_overview, fetch_floor_heatmap, fetch_latest_mpc_schedule, fetch_mpc_rooms, fetch_org_alert_email, fetch_reports_summary, fetch_room, fetch_thermal_overview, get_engine, update_org_alert_email
+from .db import fetch_alerts_overview, fetch_anomaly_detail, fetch_anomalies_overview, fetch_diagnoses_overview, fetch_floor_heatmap, fetch_latest_mpc_schedule, fetch_mpc_rooms, fetch_org_alert_email, fetch_reports_summary, fetch_room, fetch_sensor_readings, fetch_thermal_overview, get_engine, update_org_alert_email
 
 configure_agent_logging("agents.thermal_agent", "thermal_agent.log")
 
@@ -112,6 +112,12 @@ class MpcScheduleSlot(BaseModel):
     actual_temp_c: float | None
 
 
+class MpcHistoryPointOut(BaseModel):
+    ts: datetime
+    actual_temp_c: float | None
+    predicted_temp_c: float | None
+
+
 class MpcScheduleResponse(BaseModel):
     room_id: str
     room_label: str
@@ -122,6 +128,7 @@ class MpcScheduleResponse(BaseModel):
     tariff_currency_per_kwh: float
     carbon_weight_lambda: float
     slots: list[MpcScheduleSlot]
+    history: list[MpcHistoryPointOut]
 
 
 @app.get("/buildings/{building_id}/rooms/{room_id}/mpc-schedule", response_model=MpcScheduleResponse)
@@ -147,7 +154,44 @@ def get_mpc_schedule(building_id: str, room_id: str) -> MpcScheduleResponse:
         tariff_currency_per_kwh=constants.TARIFF_CURRENCY_PER_KWH,
         carbon_weight_lambda=constants.CARBON_WEIGHT_LAMBDA,
         slots=[MpcScheduleSlot(slot_ts=s.slot_ts, setpoint_c=s.setpoint_c, predicted_temp_c=s.predicted_temp_c, predicted_kwh=s.predicted_kwh, predicted_gco2=s.predicted_gco2, actual_temp_c=s.actual_temp_c) for s in result.slots],
+        history=[MpcHistoryPointOut(ts=h.ts, actual_temp_c=h.actual_temp_c, predicted_temp_c=h.predicted_temp_c) for h in result.history],
     )
+
+
+class SensorReadingPoint(BaseModel):
+    ts: datetime
+    temp_measured_c: float
+    temp_ext_c: float
+    q_solar_w: float
+    q_occ_w: float
+    q_hvac_w: float
+
+
+@app.get("/buildings/{building_id}/rooms/{room_id}/sensor-readings", response_model=list[SensorReadingPoint])
+def get_sensor_readings(building_id: str, room_id: str, hours: int = 48) -> list[SensorReadingPoint]:
+    engine = get_engine()
+    try:
+        room = fetch_room(engine, room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=f"Room not found: {room_id!r}")
+    if room.building_id != building_id:
+        raise HTTPException(status_code=404, detail=f"Room {room_id!r} does not belong to building {building_id!r}")
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=hours)
+    window = fetch_sensor_readings(engine, room_id, start, end)
+    return [
+        SensorReadingPoint(
+            ts=ts,
+            temp_measured_c=float(t_measured),
+            temp_ext_c=float(t_ext),
+            q_solar_w=float(q_solar),
+            q_occ_w=float(q_occ),
+            q_hvac_w=float(q_hvac),
+        )
+        for ts, t_measured, t_ext, q_solar, q_occ, q_hvac in zip(
+            window.ts, window.temp_measured_c, window.temp_ext_c, window.q_solar_w, window.q_occ_w, window.q_hvac_w
+        )
+    ]
 
 
 def _anomaly_status(closed_at: datetime | None, diagnosed: bool) -> str:

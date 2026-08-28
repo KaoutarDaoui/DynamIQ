@@ -168,11 +168,12 @@ def _summarize_tool_result(name: str, result: dict[str, Any]) -> str:
         return f"{name}: {len(temps)} readings, T in [{min(temps):.1f}, {max(temps):.1f}] C, latest {temps[-1]:.1f} C ({trend}), occupied during window: {occ_desc}"
     if name == "get_calendar":
         blocks = data.get("occupancy_blocks_observed") or []
+        total = data.get("blocks_total", len(blocks))
         if blocks:
             first = blocks[0].get("start")
             last = blocks[-1].get("end")
-            return f"{name}: {len(blocks)} observed occupancy block(s) over {data.get('days')} days, first {first}, last {last}"
-        return f"{name}: {len(blocks)} observed occupancy block(s) over {data.get('days')} days"
+            return f"{name}: {total} observed occupancy block(s) over {data.get('days')} days, first {first}, last {last}"
+        return f"{name}: {total} observed occupancy block(s) over {data.get('days')} days"
     if name == "get_mpc_trajectory":
         trajectory = data.get("trajectory") or []
         if not trajectory:
@@ -194,8 +195,9 @@ def _summarize_tool_result(name: str, result: dict[str, Any]) -> str:
         )
     if name == "get_similar_anomalies":
         prior = data.get("prior_anomalies") or []
+        total = data.get("anomalies_total", len(prior))
         causes = [p.get("resolved_cause") for p in prior if p.get("resolved_cause")]
-        text = f"{name}: {len(prior)} similar prior anomal{'y' if len(prior) == 1 else 'ies'} in {data.get('days')} days"
+        text = f"{name}: {total} similar prior anomal{'y' if total == 1 else 'ies'} in {data.get('days')} days"
         if causes:
             text += f", past causes: {causes}"
         return text
@@ -213,11 +215,21 @@ def _summarize_tool_result(name: str, result: dict[str, Any]) -> str:
 
 
 def _build_llm_messages(state: DiagnosisState) -> list[dict[str, Any]]:
+    # tool_calls_made carries the FULL raw tool "result" payload (kept for the
+    # DB audit trail in diagnose.py) -- that must never be replayed into the
+    # prompt, or every subsequent turn re-sends every previous tool's entire
+    # unbounded output, which is what blew Groq's request past its 413 limit.
+    # The LLM only needs the bounded human-readable summary, already computed
+    # per call and duplicated (deliberately) into evidence_gathered.
+    tool_history = [
+        {k: v for k, v in call.items() if k != "result"}
+        for call in (state.get("tool_calls_made") or [])
+    ]
     user_content = {
         "contract": state.get("contract") or {},
         "budget_remaining": state.get("budget_remaining", constants.TOOL_CALL_BUDGET),
         "iteration_count": state.get("iteration_count", 0),
-        "tool_history": state.get("tool_calls_made") or [],
+        "tool_history": tool_history,
         "evidence_gathered": state.get("evidence_gathered") or [],
     }
     return [

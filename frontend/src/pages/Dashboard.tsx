@@ -129,17 +129,6 @@ export default function Dashboard() {
   const openAnomalies = useMemo(() => (anomalies ?? []).filter((a) => a.status !== "resolved"), [anomalies]);
   const recentAnomalies = useMemo(() => [...(anomalies ?? [])].sort((a, b) => +new Date(b.openedAt) - +new Date(a.openedAt)).slice(0, 4), [anomalies]);
 
-  const floors = useMemo(() => {
-    const byLevel = new Map<number, { roomCount: number; alerts: number; open: number }>();
-    (anomalies ?? []).forEach((a) => {
-      const e = byLevel.get(a.floorLevel) ?? { roomCount: 0, alerts: 0, open: 0 };
-      e.alerts += 1;
-      if (a.status !== "resolved") e.open += 1;
-      byLevel.set(a.floorLevel, e);
-    });
-    return [...byLevel.entries()].sort((a, b) => a[0] - b[0]).map(([level, e]) => ({ level, ...e }));
-  }, [anomalies]);
-
   const metricDef = METRICS.find((m) => m.id === metric)!;
   const rangeLabel = RANGES.find((r) => r.id === range)?.label ?? "7 days";
   const chartTitle = `${metricDef.label} consumption — last ${rangeLabel.toLowerCase()}`;
@@ -365,35 +354,6 @@ export default function Dashboard() {
           </Card>
         </div>
       </div>
-
-      <Card className="mt-5">
-        <CardHeader title="Floors" subtitle="Open anomalies per floor from the live feed" />
-        <div className="flex flex-col gap-2 px-5 pb-5">
-          {floors.length === 0 && !loading && (
-            <p className="py-4 text-center text-[13px] text-ink-400">No floor telemetry recorded yet.</p>
-          )}
-          {floors.map((f) => (
-            <div key={f.level} className="group flex items-center justify-between rounded-xl border border-ink-100 px-4 py-3 transition hover:border-primary-300 dark:border-ink-800">
-              <div className="flex items-center gap-3">
-                <span className={clsx("h-2.5 w-2.5 shrink-0 rounded-full", f.open > 0 ? "bg-red-500" : "bg-teal-500")} />
-                <div>
-                  <p className="text-[14px] font-medium">Floor {f.level}</p>
-                  <p className="text-[12px] text-ink-400">{f.roomCount} Rooms · {f.alerts} anomalies recorded</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                {f.open > 0 ? (
-                  <span className="flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[12px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
-                    <AlertTriangle size={12} /> {f.open} open
-                  </span>
-                ) : (
-                  <span className="text-[12px] text-ink-400">No open alerts</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
 
       <Card className="mt-5">
         <CardHeader title="Recent anomalies" subtitle="Predicted vs measured temperature mismatches" />
