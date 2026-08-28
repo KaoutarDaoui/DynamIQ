@@ -2,39 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus,
-  Zap,
   Building2,
-  Sun,
-  Thermometer,
-  MoreVertical,
-  LayoutDashboard,
-  LayoutGrid,
-  DoorOpen,
-  FileBarChart,
-  Settings,
-  Trash2,
   Users,
   Loader2,
   AlertTriangle,
+  MapPin,
 } from "lucide-react";
 import clsx from "clsx";
 import { Card, PrimaryButton } from "../components/ui";
 import { ApiError, fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import type { AgentStatusState, Building } from "../types";
-
-const agentStateStyles: Record<AgentStatusState, string> = {
-  completed: "text-teal-700 dark:text-teal-300",
-  monitoring: "text-primary-600 dark:text-primary-400",
-  idle: "text-ink-400",
-  warning: "text-red-700 dark:text-red-300",
-};
-const agentDot: Record<AgentStatusState, string> = {
-  completed: "bg-teal-500",
-  monitoring: "bg-primary-500",
-  idle: "bg-ink-300 dark:bg-ink-600",
-  warning: "bg-red-500",
-};
+import type { Building } from "../types";
 
 const buildingStatus = {
   healthy: {
@@ -133,7 +111,8 @@ function QuickActions({ building }: { building: Building }) {
 function BuildingCard({ building }: { building: Building }) {
   const st = buildingStatus[building.status];
   const base = `/b/${building.id}`;
-  const offline = building.sensorsTotal - building.sensorsOnline;
+  
+  const anomalyColor = building.activeAnomalies > 0 ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300";
 
   return (
     <Card className="flex flex-col p-5 transition duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-300">
@@ -193,6 +172,9 @@ function BuildingCard({ building }: { building: Building }) {
             </div>
           ))}
         </div>
+        <Link to={base} className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-[14px] font-medium text-white transition hover:bg-primary-600 active:bg-primary-700">
+          View details
+        </Link>
       </div>
 
       <div className="mt-4">

@@ -21,10 +21,10 @@ import {
   Building2,
 } from "lucide-react";
 import clsx from "clsx";
-import { notifications, buildings as mockBuildings } from "../data/mock";
-import { fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
+import { buildings as mockBuildings } from "../data/mock";
+import { fetchOrgBuildings, toPortfolioBuilding, fetchThermalModels, fetchMpcRooms, fetchAlerts, ThermalApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import type { Building } from "../types";
+import type { Building, ThermalModelRoom, MpcRoomSummary, LiveAlert } from "../types";
 
 function useTheme() {
   const [dark, setDark] = useState(
@@ -37,8 +37,38 @@ function useTheme() {
   return { dark, toggle: () => setDark((value) => !value) };
 }
 
-function NotificationBell() {
+function NotificationBell({ buildingId }: { buildingId: string | undefined }) {
   const [open, setOpen] = useState(false);
+  const [alerts, setAlerts] = useState<LiveAlert[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!buildingId) {
+      setAlerts([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    fetchAlerts(buildingId)
+      .then((data) => {
+        if (!cancelled) {
+          setAlerts(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAlerts([]);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingId]);
+
+  const unreadCount = alerts.length;
+
   return (
     <div className="relative">
       <button
@@ -58,7 +88,7 @@ function NotificationBell() {
                 Notifications
               </p>
               <span className="rounded-full bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-700">
-                {notifications.length} new
+                {unreadCount} {unreadCount === 1 ? "alert" : "alerts"}
               </span>
             </div>
             <div className="divide-y divide-ink-100 dark:divide-ink-800">
