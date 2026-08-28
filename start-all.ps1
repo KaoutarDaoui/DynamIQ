@@ -1,6 +1,6 @@
 # Start all DynamIQ services in separate PowerShell windows
 
-$projectRoot = "C:\Users\hp\DynamIQ"
+$projectRoot = $PSScriptRoot
 
 # Check if .env exists
 if (-not (Test-Path "$projectRoot\.env")) {
