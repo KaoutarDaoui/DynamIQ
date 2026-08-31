@@ -1,0 +1,130 @@
+envVarGroups:
+  - name: dynamiq-db
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+
+  - name: dynamiq-groq
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DIAGNOSTIC_GROQ_API_KEY
+        sync: false
+      - key: GROQ_DIAGNOSTIC_MODEL
+        value: qwen/qwen3.6-27b
+      - key: GROQ_VISION_MODEL
+        sync: false
+
+  - name: dynamiq-supabase
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+
+  - name: dynamiq-alerts
+    envVars:
+      - key: SUPERVISOR_ALERT_EMAILJS_SERVICE_ID
+        sync: false
+      - key: SUPERVISOR_ALERT_EMAILJS_TEMPLATE_ID
+        sync: false
+      - key: SUPERVISOR_ALERT_EMAILJS_PUBLIC_KEY
+        sync: false
+      - key: SUPERVISOR_ALERT_EMAILJS_PRIVATE_KEY
+        sync: false
+      - key: SUPERVISOR_ALERT_EMAILJS_TO
+        sync: false
+
+services:
+  # --- HTTP APIs (the frontend calls these three directly) ---
+  - type: web
+    name: dynamiq-building-agent
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn agents.building_agent.api:app --app-dir src --host 0.0.0.0 --port $PORT
+    healthCheckPath: /docs
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - fromGroup: dynamiq-db
+      - fromGroup: dynamiq-groq
+      - fromGroup: dynamiq-supabase
+      # Comma-separated list, e.g. https://your-app.vercel.app -- set this
+      # once you know the Vercel URL (see deploy notes).
+      - key: BUILDING_API_CORS_ORIGINS
+        sync: false
+
+  - type: web
+    name: dynamiq-thermal-agent
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn agents.thermal_agent.api:app --app-dir src --host 0.0.0.0 --port $PORT
+    healthCheckPath: /docs
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - fromGroup: dynamiq-db
+      - key: THERMAL_API_CORS_ORIGINS
+        sync: false
+
+  - type: web
+    name: dynamiq-diagnostic-agent
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn agents.diagnostic_agent.api:app --app-dir src --host 0.0.0.0 --port $PORT
+    healthCheckPath: /docs
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - fromGroup: dynamiq-db
+      - fromGroup: dynamiq-groq
+      - key: DIAGNOSTIC_API_CORS_ORIGINS
+        sync: false
+
+  # --- Orchestration API: not called by the frontend today, deployed for
+  # parity with local dev / future admin use (POST /run-cycle etc). Safe to
+  # remove this service if you don't need it. ---
+  - type: web
+    name: dynamiq-orchestration-api
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn orchestration.api:app --app-dir src --host 0.0.0.0 --port $PORT
+    healthCheckPath: /docs
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - fromGroup: dynamiq-db
+      - key: SUPERVISOR_API_CORS_ORIGINS
+        sync: false
+
+  # --- Background workers: no HTTP port, run forever. These are what
+  # actually generate sensor data / anomalies / diagnoses / alerts -- the
+  # app has no live data without them. Render's free plan does not support
+  # background workers; these need at least a paid Starter worker plan. ---
+  - type: worker
+    name: dynamiq-sensor-simulator
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -u scripts/simulate_live_sensors.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - fromGroup: dynamiq-db
+
+  - type: worker
+    name: dynamiq-orchestration-loop
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -u scripts/run_orchestration_loop.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - fromGroup: dynamiq-db
+      - fromGroup: dynamiq-groq
+      - fromGroup: dynamiq-alerts

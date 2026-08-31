@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import smtplib
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ from typing import Any, Protocol
 import httpx
 
 from . import constants
+
+logger = logging.getLogger(__name__)
 
 
 class AlertChannel(Protocol):
@@ -49,8 +52,17 @@ class WebhookChannel:
 
 
 def _format_email_body(payload: dict[str, Any]) -> str:
-    lines = [f"{key}: {value}" for key, value in payload.items() if key != "alert_email"]
-    return "\n".join(lines)
+    # proposed_action is redundant with supervisor_reason for a human_alert
+    # email (it's always inspection_required -- that's precisely why the
+    # supervisor routed to a human instead of acting autonomously).
+    #
+    # No space-padding for column alignment here: EmailJS/EmailChannel send
+    # this through an HTML template with a proportional font, which doesn't
+    # preserve run-of-spaces the way a monospace/plaintext view would --
+    # padding just throws the layout off instead of aligning it.
+    hidden_keys = {"alert_email", "proposed_action", "anomaly_id"}
+    items = [(key, value) for key, value in payload.items() if key not in hidden_keys]
+    return "\n".join(f"{key}: {value}" for key, value in items)
 
 
 class EmailChannel:
@@ -144,7 +156,7 @@ class EmailJsChannel:
             "accessToken": self.private_key,
             "template_params": {
                 "to_email": to_addr,
-                "subject": f"DynamIQ alert — {room_id}",
+                "subject": f"DynamIQ alert - {room_id}",
                 "message": _format_email_body(payload),
             },
         }
@@ -197,5 +209,6 @@ def dispatch(payload: dict[str, Any], channels: list[AlertChannel] | None = None
         try:
             results[channel.name] = channel.send(payload)
         except Exception:
+            logger.exception("alert channel %r raised while sending", channel.name)
             results[channel.name] = False
     return results

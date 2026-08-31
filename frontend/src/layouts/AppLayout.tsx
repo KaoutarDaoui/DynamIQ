@@ -245,13 +245,6 @@ function FloatingRail({
     label: base ? "Building settings" : "General settings",
     icon: <Settings size={18} strokeWidth={1.75} />,
   };
-  const generalDashboard: RailLink = {
-    key: "general-dashboard",
-    to: "/dashboard",
-    label: "General dashboard",
-    icon: <LayoutDashboard size={18} strokeWidth={1.75} />,
-    end: true,
-  };
   const myBuildings: RailLink = {
     key: "buildings",
     to: "/",
@@ -264,7 +257,6 @@ function FloatingRail({
       className="fixed left-3 top-1/2 z-40 flex max-h-[calc(100vh-1.5rem)] -translate-y-1/2 flex-col items-center gap-1.5 overflow-y-auto rounded-[26px] border border-ink-100/60 bg-white/95 px-2 py-2 shadow-[0_4px_20px_rgba(0,0,0,0.08)] backdrop-blur dark:border-ink-800/60 dark:bg-ink-900/95 sm:left-6 sm:gap-2 sm:rounded-[30px] sm:px-2.5 sm:py-2.5"
       aria-label="Primary"
     >
-      {!base && <RailLink item={generalDashboard} />}
       <RailLink item={myBuildings} />
       {links.map((item) => (
         <RailLink key={item.key} item={item} />

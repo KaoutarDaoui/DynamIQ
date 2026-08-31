@@ -1018,7 +1018,7 @@ export default function DiagnosisDetail() {
           )}
 
           <Card className="mb-6 p-6 text-center text-[14px] text-ink-400">
-            Not diagnosed yet — Orchestrator will call the diagnostic agent on its next cycle.
+            Not diagnosed yet, Orchestrator will call the diagnostic agent on its next cycle.
           </Card>
         </div>
       )}

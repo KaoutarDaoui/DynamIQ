@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { Card, ConfirmDialog, PrimaryButton } from "../components/ui";
-import { ApiError, deleteBuilding, fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
+import { ApiError, deleteBuilding, fetchAnomalies, fetchOrgBuildings, toPortfolioBuilding } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Building } from "../types";
 
@@ -157,8 +157,22 @@ export default function Portfolio() {
     setLoading(true);
     setError(null);
     fetchOrgBuildings(orgId ?? undefined)
-      .then((dtos) => {
-        if (!cancelled) setBuildings(dtos.map(toPortfolioBuilding));
+      .then(async (dtos) => {
+        if (cancelled) return;
+        const base = dtos.map(toPortfolioBuilding);
+        setBuildings(base);
+        // toPortfolioBuilding defaults activeAnomalies to 0 -- the buildings
+        // list endpoint doesn't carry anomaly counts, so backfill each one
+        // from Agent 2's per-building anomalies endpoint once the list is up.
+        const counts = await Promise.all(
+          base.map((b) =>
+            fetchAnomalies(b.id)
+              .then((anomalies) => anomalies.filter((a) => a.status !== "resolved").length)
+              .catch(() => 0),
+          ),
+        );
+        if (cancelled) return;
+        setBuildings((prev) => prev.map((b, i) => ({ ...b, activeAnomalies: counts[i] ?? 0 })));
       })
       .catch((err) => {
         if (!cancelled)

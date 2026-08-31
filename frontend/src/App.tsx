@@ -45,7 +45,6 @@ export default function App() {
             }
           >
             <Route path="/" element={<Portfolio />} />
-            <Route path="/dashboard" element={<ComingSoon />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/help" element={<Help />} />

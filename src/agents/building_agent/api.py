@@ -38,8 +38,10 @@ app.add_middleware(
     CORSMiddleware,
     # Vite picks the next free port (5173, 5174, ...) when one's already
     # taken, so pin the regex to localhost/127.0.0.1 rather than one port.
-    # Tighten this once there's a deployed frontend origin to pin instead.
+    # BUILDING_API_CORS_ORIGINS (comma-separated) adds the deployed frontend
+    # origin(s) on top of that -- same pattern as the other 3 services.
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
+    allow_origins=[o for o in os.getenv("BUILDING_API_CORS_ORIGINS", "").split(",") if o],
     allow_methods=["*"],
     allow_headers=["*"],
 )
