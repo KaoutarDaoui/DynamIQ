@@ -23,7 +23,7 @@ _DEFAULT_CORS_ORIGINS = ",".join(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("THERMAL_API_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS).split(","),
+    allow_origins=[o.strip() for o in os.getenv("THERMAL_API_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS).split(",") if o.strip()],
     allow_methods=["GET", "PUT"],
     allow_headers=["*"],
 )
