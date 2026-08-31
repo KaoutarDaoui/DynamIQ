@@ -139,6 +139,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--online-weather", action="store_true", help="Fetch real weather instead of the offline sinusoidal model.")
     parser.add_argument("--no-force-accept", dest="force_accept", action="store_false", help="Use normal gated calibration (24h interval, only accept if RMSE improves) instead of force-refreshing every room every cycle.")
     parser.add_argument("--mpc-interval-minutes", type=float, default=float(orch_constants.FAST_LOOP_INTERVAL_MINUTES), help="How often to re-solve the MPC schedule (separate from --interval-seconds, which is the calibration cadence). Defaults to the system's own FAST_LOOP_INTERVAL_MINUTES.")
+    parser.add_argument("--iterations", type=int, default=None, help="Stop after this many cycles instead of running forever -- e.g. --iterations 1 for a single cron-triggered run (GitHub Actions, etc.) instead of a perpetual worker.")
     return parser.parse_args()
 
 
@@ -149,7 +150,8 @@ def main() -> None:
     last_fast_loop: dict[str, datetime] = {}
     print(f"Running full orchestration cycle every {args.interval_seconds:.0f}s (MPC re-solves every {args.mpc_interval_minutes:.0f}min).")
     try:
-        while True:
+        iteration = 0
+        while args.iterations is None or iteration < args.iterations:
             cycle_start = time.monotonic()
             now = datetime.now(timezone.utc)
             building_ids = args.building_id or fetch_all_building_ids(engine)
@@ -161,6 +163,9 @@ def main() -> None:
                     )
                 except Exception as exc:  # keep the loop alive across a bad cycle
                     print(f"[{now.isoformat()}] {building_id}: cycle failed: {exc!r}")
+            iteration += 1
+            if args.iterations is not None and iteration >= args.iterations:
+                break
             elapsed = time.monotonic() - cycle_start
             remaining = args.interval_seconds - elapsed
             if remaining > 0:

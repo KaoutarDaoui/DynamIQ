@@ -1,3 +1,10 @@
+# Free architecture: 4 web APIs here on Render's free plan (cold-starts
+# after ~15min idle, but $0). The 2 processes that used to run as perpetual
+# Render background workers (no free plan for those) now run as GitHub
+# Actions scheduled workflows instead -- see .github/workflows/
+# simulate-sensors.yml and orchestration-loop.yml. That trades the tight
+# 2-minute cadence for a looser ~5-minute one; see those files for why.
+
 envVarGroups:
   - name: dynamiq-db
     envVars:
@@ -40,7 +47,7 @@ services:
   - type: web
     name: dynamiq-building-agent
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn agents.building_agent.api:app --app-dir src --host 0.0.0.0 --port $PORT
     healthCheckPath: /docs
@@ -58,7 +65,7 @@ services:
   - type: web
     name: dynamiq-thermal-agent
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn agents.thermal_agent.api:app --app-dir src --host 0.0.0.0 --port $PORT
     healthCheckPath: /docs
@@ -72,7 +79,7 @@ services:
   - type: web
     name: dynamiq-diagnostic-agent
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn agents.diagnostic_agent.api:app --app-dir src --host 0.0.0.0 --port $PORT
     healthCheckPath: /docs
@@ -84,13 +91,14 @@ services:
       - key: DIAGNOSTIC_API_CORS_ORIGINS
         sync: false
 
-  # --- Orchestration API: not called by the frontend today, deployed for
-  # parity with local dev / future admin use (POST /run-cycle etc). Safe to
-  # remove this service if you don't need it. ---
+  # --- Orchestration API: GitHub Actions is the real cycle driver now (see
+  # top of file), but this stays deployed since POST /run-cycle is still
+  # useful for a manual/on-demand trigger -- hence it still needs the Groq +
+  # alerts secrets, same as the workflow that used to be a Render worker. ---
   - type: web
     name: dynamiq-orchestration-api
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn orchestration.api:app --app-dir src --host 0.0.0.0 --port $PORT
     healthCheckPath: /docs
@@ -98,33 +106,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
       - fromGroup: dynamiq-db
-      - key: SUPERVISOR_API_CORS_ORIGINS
-        sync: false
-
-  # --- Background workers: no HTTP port, run forever. These are what
-  # actually generate sensor data / anomalies / diagnoses / alerts -- the
-  # app has no live data without them. Render's free plan does not support
-  # background workers; these need at least a paid Starter worker plan. ---
-  - type: worker
-    name: dynamiq-sensor-simulator
-    runtime: python
-    plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -u scripts/simulate_live_sensors.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - fromGroup: dynamiq-db
-
-  - type: worker
-    name: dynamiq-orchestration-loop
-    runtime: python
-    plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -u scripts/run_orchestration_loop.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - fromGroup: dynamiq-db
       - fromGroup: dynamiq-groq
       - fromGroup: dynamiq-alerts
+      - key: SUPERVISOR_API_CORS_ORIGINS
+        sync: false

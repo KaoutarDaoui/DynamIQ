@@ -1,0 +1,37 @@
+name: Orchestration cycle
+
+# Free stand-in for the perpetual `run_orchestration_loop.py` worker (Render
+# has no free background-worker plan). Each run does exactly one full cycle
+# (calibration-if-due, MPC fast loop, diagnosis, alerts) for every building
+# (--iterations 1) and exits. Cron's minimum practical granularity is ~5
+# minutes and isn't exact, so this is a looser cadence than the 2-minute
+# interval the real worker uses.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: orchestration-loop
+  cancel-in-progress: true
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python scripts/run_orchestration_loop.py --iterations 1
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIAGNOSTIC_GROQ_API_KEY: ${{ secrets.DIAGNOSTIC_GROQ_API_KEY }}
+          GROQ_DIAGNOSTIC_MODEL: ${{ secrets.GROQ_DIAGNOSTIC_MODEL }}
+          SUPERVISOR_ALERT_EMAILJS_SERVICE_ID: ${{ secrets.SUPERVISOR_ALERT_EMAILJS_SERVICE_ID }}
+          SUPERVISOR_ALERT_EMAILJS_TEMPLATE_ID: ${{ secrets.SUPERVISOR_ALERT_EMAILJS_TEMPLATE_ID }}
+          SUPERVISOR_ALERT_EMAILJS_PUBLIC_KEY: ${{ secrets.SUPERVISOR_ALERT_EMAILJS_PUBLIC_KEY }}
+          SUPERVISOR_ALERT_EMAILJS_PRIVATE_KEY: ${{ secrets.SUPERVISOR_ALERT_EMAILJS_PRIVATE_KEY }}
+          SUPERVISOR_ALERT_EMAILJS_TO: ${{ secrets.SUPERVISOR_ALERT_EMAILJS_TO }}

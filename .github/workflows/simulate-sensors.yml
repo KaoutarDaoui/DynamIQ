@@ -1,0 +1,30 @@
+name: Simulate live sensors
+
+# Free stand-in for the perpetual `simulate_live_sensors.py` worker (Render
+# has no free background-worker plan). Each run does exactly one tick across
+# every room in every building (--iterations 1) and exits -- GitHub Actions
+# doesn't run daemons, only scheduled jobs. Cron's minimum practical
+# granularity is ~5 minutes and isn't exact, so this is a looser cadence
+# than the 2-minute interval the real worker uses.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: simulate-sensors
+  cancel-in-progress: true
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python scripts/simulate_live_sensors.py --iterations 1
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
