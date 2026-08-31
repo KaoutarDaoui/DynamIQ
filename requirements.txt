@@ -2,6 +2,9 @@
 numpy>=1.26
 scipy>=1.11
 cvxpy>=1.4
+ecos>=2.0
+pandas>=2.0
+pvlib>=0.11
 
 # Data validation and HTTP
 pydantic>=2.6
