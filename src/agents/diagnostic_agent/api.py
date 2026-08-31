@@ -28,7 +28,7 @@ _DEFAULT_CORS_ORIGINS = ",".join(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.getenv("DIAGNOSTIC_API_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS).split(",") if o.strip()],
+    allow_origins=[o.strip().rstrip("/") for o in os.getenv("DIAGNOSTIC_API_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS).split(",") if o.strip()],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )

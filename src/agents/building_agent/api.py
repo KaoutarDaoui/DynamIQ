@@ -41,7 +41,10 @@ app.add_middleware(
     # BUILDING_API_CORS_ORIGINS (comma-separated) adds the deployed frontend
     # origin(s) on top of that -- same pattern as the other 3 services.
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
-    allow_origins=[o.strip() for o in os.getenv("BUILDING_API_CORS_ORIGINS", "").split(",") if o.strip()],
+    # Origin headers never carry a trailing slash -- rstrip it so a URL
+    # copy-pasted with one (e.g. straight from a browser address bar) still
+    # matches.
+    allow_origins=[o.strip().rstrip("/") for o in os.getenv("BUILDING_API_CORS_ORIGINS", "").split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
