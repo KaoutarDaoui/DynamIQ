@@ -583,17 +583,23 @@ cycle runs.
 
 # Testing & Verification
 
-Each agent has dedicated pytest coverage.
+Each agent has dedicated pytest coverage (`tests/`).
 
-The project also includes scripts for:
+`scripts/` also has manual/operational tools, all run against the real Supabase
+environment (no mocking):
 
-* end-to-end simulation
-* Agent 3 live demonstration
-* Agent 3 verification
-* database seeding
-* sensor data generation
+| Script | Purpose |
+| ------ | ------- |
+| `simulate_live_sensors.py` | Generates sensor readings for every room in every building on a fixed interval; runs the anomaly pipeline synchronously right after each reading |
+| `run_orchestration_loop.py` | Drives the full cycle (calibration → MPC fast loop → diagnosis → alerts) for every building on a fixed interval |
+| `run_simulation.py` | Scripted end-to-end scenario ("window left open") for demonstrating the full pipeline |
+| `demo_agent3.py` | Live, node-by-node walkthrough of Agent 3's investigation for a presentation |
+| `verify_agent3.py` | Exit-code-driven verification that Agent 3's persistence (diagnosis, alerts, audit log) is correct |
+| `create_user.py` | Creates a login user for the frontend (there is no self-serve signup) |
 
-The current implementation has been tested against the real Supabase environment.
+In production, `simulate_live_sensors.py` and `run_orchestration_loop.py` run as
+scheduled GitHub Actions workflows (`.github/workflows/`) instead of perpetual
+processes — see the Deployment section.
 
 ---
 
@@ -601,27 +607,26 @@ The current implementation has been tested against the real Supabase environment
 
 ### Phase 0 — Functional Core
 
-| Component                       | Status  |
-| ------------------------------- | ------- |
-| Agent 1 — Building extraction   |         |
-| Agent 2 — RC model              |         |
-| Agent 2 — Calibration           |         |
-| Agent 2 — MPC                   |         |
-| Agent 2 — Anomaly detection     |         |
-| Agent 3 — LLM cause classification |     |
-| Agent 3 — Evidence computation  |         |
-| Agent 3 — Validation & fallback |         |
-| Orchestrator — Cycle + alert dispatch |   |
-| Frontend                        | Mock    |
+| Component                             | Status |
+| -------------------------------------- | ------ |
+| Agent 1 — Building extraction          | ✅ Done |
+| Agent 2 — RC model                     | ✅ Done |
+| Agent 2 — Calibration                  | ✅ Done |
+| Agent 2 — MPC                          | ✅ Done |
+| Agent 2 — Anomaly detection            | ✅ Done |
+| Agent 3 — LLM cause classification     | ✅ Done |
+| Agent 3 — Evidence computation         | ✅ Done |
+| Agent 3 — Validation & fallback        | ✅ Done |
+| Orchestrator — Cycle + alert dispatch  | ✅ Done |
+| Frontend — connected to live APIs      | ✅ Done |
+| Deployment (Vercel + Render + GitHub Actions) | ✅ Done |
 
 ### Next phases
 
 **Phase 1**
 
-* ESP32 sensors
+* ESP32 sensors (real hardware, replacing the sensor simulator)
 * improved wall geometry
-* frontend connected to API
-* deployment
 
 **Phase 2**
 
@@ -634,11 +639,11 @@ The current implementation has been tested against the real Supabase environment
 # Roadmap
 
 ```text
-Phase 0
-Functional multi-agent core
+Phase 0 — done
+Functional multi-agent core, deployed (Vercel + Render + GitHub Actions)
         ↓
 Phase 1
-Real sensors + production API + deployment
+Real ESP32 sensors + improved wall geometry
         ↓
 Phase 2
 Multi-zone modeling + autonomous HVAC actions
