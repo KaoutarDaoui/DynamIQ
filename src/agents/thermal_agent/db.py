@@ -179,7 +179,7 @@ class AdjacencyRecord:
 
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    database_url = os.getenv('DATABASE_URL')
+    database_url = (os.getenv('DATABASE_URL') or '').strip()
     if not database_url:
         raise RuntimeError('DATABASE_URL must be set (see .env.example)')
     return create_engine(database_url, pool_size=1, max_overflow=1, pool_pre_ping=True)

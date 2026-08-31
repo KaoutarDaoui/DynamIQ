@@ -12,7 +12,7 @@ from sqlmodel import Session, create_engine
 load_dotenv()
 
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must be defined in .env for the Building Agent")
 
