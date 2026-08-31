@@ -20,7 +20,6 @@ import Help from "./pages/Help";
 import Thermal from "./pages/Thermal";
 import Mpc from "./pages/Mpc";
 import Diagnoses from "./pages/Diagnoses";
-import ComingSoon from "./pages/ComingSoon";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -66,7 +65,6 @@ export default function App() {
               <Route path="thermal" element={<Thermal />} />
               <Route path="mpc" element={<Mpc />} />
               <Route path="diagnoses" element={<Diagnoses />} />
-              <Route path="admin" element={<ComingSoon />} />
             </Route>
           </Route>
         </Routes>
